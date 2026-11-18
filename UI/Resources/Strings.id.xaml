@@ -1,0 +1,236 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- Branding -->
+    <sys:String x:Key="Str_Brand_Aura">AURA</sys:String>
+    <sys:String x:Key="Str_Brand_Audio"> AUDIO</sys:String>
+    <sys:String x:Key="Str_Brand_Tagline">Bit-Perfect Desktop Player</sys:String>
+
+    <!-- Navigasi Sidebar -->
+    <sys:String x:Key="Str_Nav_MusicCollection">Koleksi Musik</sys:String>
+    <sys:String x:Key="Str_Nav_Songs">Pustaka Lagu</sys:String>
+    <sys:String x:Key="Str_Nav_Albums">Album</sys:String>
+    <sys:String x:Key="Str_Nav_Artists">Artis</sys:String>
+    <sys:String x:Key="Str_Nav_Queue">Antrean Putar</sys:String>
+    <sys:String x:Key="Str_Nav_Playlists">Playlist</sys:String>
+    <sys:String x:Key="Str_Nav_AudiophileTools">Alat Audio</sys:String>
+    <sys:String x:Key="Str_Nav_Inspector">Cek Keaslian Audio</sys:String>
+    <sys:String x:Key="Str_Nav_Hardware">Pengaturan DAC</sys:String>
+    <sys:String x:Key="Str_Nav_Folders">Kelola Folder Musik</sys:String>
+
+    <!-- Bar Atas -->
+    <sys:String x:Key="Str_Top_ManageFolders">Kelola Folder</sys:String>
+    <sys:String x:Key="Str_Top_ManageFoldersTip">Atur folder musik yang dipantau dan bersihkan database</sys:String>
+    <sys:String x:Key="Str_Top_SearchPlaceholder">Cari judul lagu, artis, atau album...</sys:String>
+    <sys:String x:Key="Str_Top_TracksIndexedSuffix">lagu terindeks</sys:String>
+    <sys:String x:Key="Str_Top_LangButton">ID / EN</sys:String>
+    <sys:String x:Key="Str_Top_LangTip">Ganti bahasa tampilan (Indonesia / Inggris)</sys:String>
+
+    <!-- Judul Halaman -->
+    <sys:String x:Key="Str_Header_SongsTitle">Pustaka Musik Lokal</sys:String>
+    <sys:String x:Key="Str_Header_SongsDesc">Daftar seluruh berkas FLAC, WAV, ALAC, DSD, dan MP3 yang terindeks dari folder Anda.</sys:String>
+    <sys:String x:Key="Str_Header_AlbumsTitle">Album</sys:String>
+    <sys:String x:Key="Str_Header_AlbumsDesc">Dikelompokkan otomatis berdasarkan tag album dan sampul berkas audio.</sys:String>
+    <sys:String x:Key="Str_Header_ArtistsTitle">Artis</sys:String>
+    <sys:String x:Key="Str_Header_ArtistsDesc">Jelajahi diskografi lengkap berdasarkan nama artis.</sys:String>
+    <sys:String x:Key="Str_Header_QueueTitle">Antrean Putar</sys:String>
+    <sys:String x:Key="Str_Header_QueueDesc">Atur urutan lagu yang sedang dan akan diputar.</sys:String>
+    <sys:String x:Key="Str_Header_PlaylistsTitle">Playlist</sys:String>
+    <sys:String x:Key="Str_Header_PlaylistsDesc">Kelola daftar putar buatan Anda atau buat daftar baru.</sys:String>
+
+    <!-- Tombol & Aksi -->
+    <sys:String x:Key="Str_Btn_PlayAll">Putar Semua</sys:String>
+    <sys:String x:Key="Str_Btn_ShuffleAll">Acak Semua</sys:String>
+    <sys:String x:Key="Str_Btn_Back">Kembali</sys:String>
+    <sys:String x:Key="Str_Btn_Play">Putar</sys:String>
+    <sys:String x:Key="Str_Btn_Shuffle">Acak</sys:String>
+    <sys:String x:Key="Str_Btn_Details">Lihat Detail</sys:String>
+    <sys:String x:Key="Str_Btn_Save">Simpan</sys:String>
+    <sys:String x:Key="Str_Btn_Cancel">Batal</sys:String>
+    <sys:String x:Key="Str_Btn_Close">Tutup</sys:String>
+    <sys:String x:Key="Str_Btn_Apply">Terapkan Pengaturan</sys:String>
+
+    <!-- Header Tabel -->
+    <sys:String x:Key="Str_Table_TrackNo">#</sys:String>
+    <sys:String x:Key="Str_Table_TitleAndArtist">Judul &amp; Artis</sys:String>
+    <sys:String x:Key="Str_Table_Title">Judul Lagu</sys:String>
+    <sys:String x:Key="Str_Table_Album">Album</sys:String>
+    <sys:String x:Key="Str_Table_Format">Format Audio</sys:String>
+    <sys:String x:Key="Str_Table_Duration">Durasi</sys:String>
+    <sys:String x:Key="Str_Table_Art">Sampul</sys:String>
+    <sys:String x:Key="Str_Table_Order">Aksi</sys:String>
+
+    <!-- Bar Pemutar -->
+    <sys:String x:Key="Str_Player_Playing">Memutar</sys:String>
+    <sys:String x:Key="Str_Player_Paused">Dijeda</sys:String>
+    <sys:String x:Key="Str_Player_Stopped">Berhenti</sys:String>
+    <sys:String x:Key="Str_Player_BitPerfectDirect">Bit-Perfect Langsung</sys:String>
+    <sys:String x:Key="Str_Player_DspResampling">Mixer / Resampling Aktif</sys:String>
+
+    <!-- Menu Konteks -->
+    <sys:String x:Key="Str_Ctx_PlayNow">Putar Lagu Ini</sys:String>
+    <sys:String x:Key="Str_Ctx_PlayNext">Putar Berikutnya</sys:String>
+    <sys:String x:Key="Str_Ctx_AddToQueue">Tambahkan ke Antrean</sys:String>
+    <sys:String x:Key="Str_Ctx_AddToPlaylist">Tambahkan ke Playlist...</sys:String>
+    <sys:String x:Key="Str_Ctx_InspectAuthenticity">Periksa Keaslian Audio...</sys:String>
+    <sys:String x:Key="Str_Ctx_OpenFileLocation">Buka Lokasi Berkas</sys:String>
+    <sys:String x:Key="Str_Ctx_RemoveFromQueue">Hapus dari Antrean</sys:String>
+    <sys:String x:Key="Str_Ctx_RemoveFromPlaylist">Hapus dari Playlist</sys:String>
+    <sys:String x:Key="Str_Ctx_MoveUp">Pindahkan ke Atas</sys:String>
+    <sys:String x:Key="Str_Ctx_MoveDown">Pindahkan ke Bawah</sys:String>
+
+    <!-- Antrean -->
+    <sys:String x:Key="Str_Queue_Badge">Antrean Pemutaran</sys:String>
+    <sys:String x:Key="Str_Queue_Title">Antrean Putar</sys:String>
+    <sys:String x:Key="Str_Queue_SavePlaylist">Simpan Jadi Playlist</sys:String>
+    <sys:String x:Key="Str_Queue_ExportM3u">Ekspor M3U8</sys:String>
+    <sys:String x:Key="Str_Queue_ImportM3u">Impor M3U</sys:String>
+    <sys:String x:Key="Str_Queue_Clear">Kosongkan</sys:String>
+    <sys:String x:Key="Str_Queue_EmptyTitle">Antrean putar masih kosong</sys:String>
+    <sys:String x:Key="Str_Queue_EmptyDesc">Pilih lagu dari pustaka musik, klik kanan lalu pilih Tambahkan ke Antrean, atau tekan Putar Semua.</sys:String>
+    <sys:String x:Key="Str_Queue_BrowseLibraryBtn">Buka Pustaka Lagu</sys:String>
+
+    <!-- Detail Album -->
+    <sys:String x:Key="Str_AlbumDetail_Badge">Album</sys:String>
+    <sys:String x:Key="Str_AlbumDetail_HiRes">HI-RES</sys:String>
+    <sys:String x:Key="Str_AlbumDetail_PlayAlbum">Putar Album</sys:String>
+    <sys:String x:Key="Str_AlbumDetail_ShuffleAlbum">Acak Album</sys:String>
+    <sys:String x:Key="Str_Album_TracksSuffix">lagu</sys:String>
+
+    <!-- Tampilan Artis -->
+    <sys:String x:Key="Str_Artist_Badge">Artis</sys:String>
+    <sys:String x:Key="Str_Artist_BackToArtists">Kembali ke Artis</sys:String>
+    <sys:String x:Key="Str_Artist_RelatedAlbums">Album Terkait</sys:String>
+    <sys:String x:Key="Str_Artist_CompleteDiscography">Diskografi Lengkap per Album</sys:String>
+
+    <!-- Pemeriksa Keaslian Audio -->
+    <sys:String x:Key="Str_Inspect_Title">Inspeksi Keaslian &amp; Spesifikasi Audio</sys:String>
+    <sys:String x:Key="Str_Inspect_Subtitle">Periksa apakah berkas audio benar-benar lossless sesuai spesifikasinya atau hasil konversi dari format lebih rendah.</sys:String>
+    <sys:String x:Key="Str_Inspect_OpenFile">Buka File Audio...</sys:String>
+    <sys:String x:Key="Str_Inspect_Rescan">Pindai Ulang</sys:String>
+    <sys:String x:Key="Str_Inspect_EmptyTitle">Belum ada lagu yang diperiksa</sys:String>
+    <sys:String x:Key="Str_Inspect_EmptyDesc">Klik kanan lagu mana saja lalu pilih Periksa Keaslian Audio, atau buka berkas audio langsung dari komputer Anda.</sys:String>
+    <sys:String x:Key="Str_Inspect_ErrorTitle">Gagal memeriksa berkas audio</sys:String>
+    <sys:String x:Key="Str_Inspect_ChooseAnother">Pilih File Lain...</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecsHeading">Spesifikasi &amp; Arti Kualitas File</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecContainerTitle">Format &amp; Kompresi</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecFreqTitle">Jangkauan Frekuensi</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecBitTitle">Kedalaman Detail (Bit Depth)</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecOutputTitle">Jalur Output Perangkat</sys:String>
+    <sys:String x:Key="Str_Inspect_TechnicalExpander">Lihat Data Pengukuran Teknis (FFT &amp; Bitstream)</sys:String>
+    <sys:String x:Key="Str_Inspect_EffectiveCutoff">Batas Frekuensi Terukur</sys:String>
+    <sys:String x:Key="Str_Inspect_BitDepthIntegrity">Integritas Kedalaman Bit</sys:String>
+    <sys:String x:Key="Str_Inspect_HardwareOutput">Jalur Output Hardware</sys:String>
+    <sys:String x:Key="Str_Inspect_FftGraphTitle">Kurva Spektrum Frekuensi (0 dBFS sampai -145 dBFS)</sys:String>
+    <sys:String x:Key="Str_Inspect_LegendPowerSpectrum">Kurva Suara</sys:String>
+    <sys:String x:Key="Str_Inspect_LegendCdLimit">Batas CD (22.05 kHz)</sys:String>
+    <sys:String x:Key="Str_Inspect_LegendDetectedCutoff">Titik Potong Terukur</sys:String>
+    <sys:String x:Key="Str_Inspect_DsdNotice">Kurva Representatif DSD (Tidak Diukur Langsung)</sys:String>
+    <sys:String x:Key="Str_Inspect_LoadingTitle">Memeriksa keaslian dan spektrum frekuensi...</sys:String>
+    <sys:String x:Key="Str_Inspect_LoadingDesc">Menganalisis potongan frekuensi lintas segmen lagu dan integritas bit...</sys:String>
+    <sys:String x:Key="Str_Inspect_SpectralSlope">Kemiringan Transisi</sys:String>
+    <sys:String x:Key="Str_Inspect_EntropyLabel">Entropi Shannon LSB</sys:String>
+    <sys:String x:Key="Str_Inspect_DitherWarning">Lantai Dither 16-Bit Terdeteksi (-130.7 dBFS)</sys:String>
+    <sys:String x:Key="Str_Inspect_NoiseFloorLabel">Lantai Derau Atas</sys:String>
+    <sys:String x:Key="Str_Inspect_TelemetryTitle">Data Pengukuran Teknis</sys:String>
+    <sys:String x:Key="Str_Inspect_AnalyzedSegment">Segmen Dianalisis</sys:String>
+    <sys:String x:Key="Str_Inspect_ContainerFormat">Format Wadah</sys:String>
+    <sys:String x:Key="Str_Inspect_Power22k">Daya @ 22.05 kHz / Batas File</sys:String>
+    <sys:String x:Key="Str_Inspect_PowerNyquist">Daya @ Nyquist Fisik</sys:String>
+    <sys:String x:Key="Str_Inspect_NoiseStdDev">Derau Atas &amp; Variasi</sys:String>
+    <sys:String x:Key="Str_Inspect_TechSegmentHint">Posisi berenergi tinggi dari hasil pindai beberapa segmen</sys:String>
+    <sys:String x:Key="Str_Inspect_TechKnee">Titik Belok (-48 dB)</sys:String>
+    <sys:String x:Key="Str_Inspect_TechKneeHint">Frekuensi saat energi turun 48 dB di bawah level vokal utama</sys:String>
+    <sys:String x:Key="Str_Inspect_TechSlopeHint">Lebih curam dari -36 dB/oktaf menandakan filter pemotong</sys:String>
+    <sys:String x:Key="Str_Inspect_TechDrop">Penurunan di Titik Belok</sys:String>
+    <sys:String x:Key="Str_Inspect_TechDropHint">Selisih daya tepat sebelum dan sesudah titik belok</sys:String>
+    <sys:String x:Key="Str_Inspect_TechPowersHint">Energi tersisa di batas CD (22.05 kHz) dan batas maksimal file</sys:String>
+    <sys:String x:Key="Str_Inspect_TechLsb">Aktivitas &amp; Entropi Bit Bawah</sys:String>
+    <sys:String x:Key="Str_Inspect_TechLsbHint">Keaktifan byte terbawah (LSB) dan acakan Shannon (maks 8.00 bit)</sys:String>
+    <sys:String x:Key="Str_Inspect_TechNoiseHint">Rata-rata lantai derau dan sebaran variasi di pita atas</sys:String>
+    <sys:String x:Key="Str_Inspect_TechImaging">Korelasi Bayangan Resampler</sys:String>
+    <sys:String x:Key="Str_Inspect_TechImagingHint">Nilai r &gt;= 0.65 menandakan cermin pantulan dari resampler lama</sys:String>
+
+    <!-- Tampilan Playlist -->
+    <sys:String x:Key="Str_Playlist_Badge">Playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_Title">Playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_Desc">Buat dan kelola daftar putar lagu Anda.</sys:String>
+    <sys:String x:Key="Str_Playlist_CreateNewHeader">Buat playlist baru</sys:String>
+    <sys:String x:Key="Str_Playlist_CreateBtn">+ Buat</sys:String>
+    <sys:String x:Key="Str_Playlist_PlayPlaylist">Putar Playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_ShufflePlaylist">Acak Playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_Rename">Ubah Nama</sys:String>
+    <sys:String x:Key="Str_Playlist_Delete">Hapus</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptyNotice">Belum ada playlist tersimpan. Ketik nama di atas untuk membuat playlist baru.</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptySelectTitle">Pilih playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptySelectDesc">Pilih playlist di sebelah kiri atau buat playlist baru untuk melihat daftar lagunya.</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptyTracksTitle">Playlist ini masih kosong</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptyTracksDesc">Klik kanan lagu di Pustaka Lagu lalu pilih Tambahkan ke Playlist untuk mengisinya.</sys:String>
+
+    <!-- Pengaturan DAC & Hardware -->
+    <sys:String x:Key="Str_Hw_WindowTitle">Pengaturan DAC &amp; Perangkat Audio - AuraAudio</sys:String>
+    <sys:String x:Key="Str_Hw_Title">Pengaturan DAC &amp; Perangkat Audio</sys:String>
+    <sys:String x:Key="Str_Hw_Desc">Pilih perangkat output, mode WASAPI Exclusive, latensi buffer, dan cara pemrosesan DSD.</sys:String>
+    <sys:String x:Key="Str_Hw_ActiveDeviceHeader">Perangkat Output Aktif</sys:String>
+    <sys:String x:Key="Str_Hw_RescanBtn">Pindai Ulang</sys:String>
+    <sys:String x:Key="Str_Hw_RescanTooltip">Pindai ulang perangkat audio yang baru tersambung</sys:String>
+    <sys:String x:Key="Str_Hw_DriverModeHeader">Mode Driver &amp; Eksklusivitas</sys:String>
+    <sys:String x:Key="Str_Hw_ExclusiveTitle">WASAPI Exclusive (Bit-Perfect Langsung)</sys:String>
+    <sys:String x:Key="Str_Hw_AudiophileStandardBadge">Rekomendasi</sys:String>
+    <sys:String x:Key="Str_Hw_ExclusiveDesc">Mengunci perangkat audio secara langsung melewati Windows Audio Mixer tanpa resampling atau perubahan volume OS.</sys:String>
+    <sys:String x:Key="Str_Hw_SharedTitle">WASAPI Shared (Mixer Windows)</sys:String>
+    <sys:String x:Key="Str_Hw_SharedDesc">Memungkinkan pemutaran bersamaan dengan aplikasi lain seperti browser atau game. Format suara disesuaikan oleh mixer Windows.</sys:String>
+    <sys:String x:Key="Str_Hw_BufferLatencyHeader">Ukuran Buffer Latensi Perangkat</sys:String>
+    <sys:String x:Key="Str_Hw_LatencyLowHint">20 ms (Responsif)</sys:String>
+    <sys:String x:Key="Str_Hw_LatencyOptimalHint">50 ms (Seimbang)</sys:String>
+    <sys:String x:Key="Str_Hw_LatencySafeHint">250 ms (Paling Stabil)</sys:String>
+    <sys:String x:Key="Str_Hw_DsdHeader">Metode Pemutaran Berkas SACD / DSD</sys:String>
+    <sys:String x:Key="Str_Hw_DsdDopTitle">DoP 1.0 (DSD over PCM)</sys:String>
+    <sys:String x:Key="Str_Hw_DsdDopDesc">Membungkus aliran DSD mentah ke frame PCM 176.4/352.8 kHz dengan penanda 0x05/0xFA untuk DAC yang mendukung DoP.</sys:String>
+    <sys:String x:Key="Str_Hw_DsdDecimTitle">PCM Decimation (Filter FIR 64-bit)</sys:String>
+    <sys:String x:Key="Str_Hw_DsdDecimDesc">Mengonversi DSD menjadi PCM 24-bit melalui filter FIR fase linier agar kompatibel di semua soundcard biasa.</sys:String>
+    <sys:String x:Key="Str_Hw_FooterNote">Perubahan langsung aktif tanpa perlu memulai ulang aplikasi.</sys:String>
+    <sys:String x:Key="Str_Hw_ApplyBtn">Terapkan Pengaturan</sys:String>
+
+    <!-- Pengelola Folder Musik -->
+    <sys:String x:Key="Str_Fld_WindowTitle">Pengelola Folder Musik - AuraAudio</sys:String>
+    <sys:String x:Key="Str_Fld_Title">Kelola Folder Musik &amp; Pustaka</sys:String>
+    <sys:String x:Key="Str_Fld_Desc">Atur folder pantauan, kecualikan folder yang tidak diinginkan, dan pindai ulang database.</sys:String>
+    <sys:String x:Key="Str_Fld_TabMonitored">Folder Terpantau</sys:String>
+    <sys:String x:Key="Str_Fld_TabMonitoredDesc">AuraAudio memindai seluruh lagu di dalam folder berikut secara rekursif:</sys:String>
+    <sys:String x:Key="Str_Fld_AddFolderBtn">Tambah Folder Musik...</sys:String>
+    <sys:String x:Key="Str_Fld_RemoveFolderBtn">Hapus dari Pantauan</sys:String>
+    <sys:String x:Key="Str_Fld_TabExcluded">Folder Dikecualikan</sys:String>
+    <sys:String x:Key="Str_Fld_TabExcludedDesc">Folder di bawah ini dilewati saat pemindaian (berguna untuk efek suara game atau nada dering):</sys:String>
+    <sys:String x:Key="Str_Fld_AddExcludedBtn">Kecualikan Folder...</sys:String>
+    <sys:String x:Key="Str_Fld_RemoveExcludedBtn">Hapus Pengecualian</sys:String>
+    <sys:String x:Key="Str_Fld_TabOptions">Opsi &amp; Ekspor</sys:String>
+    <sys:String x:Key="Str_Fld_AutoScanLabel">Pindai folder musik otomatis setiap kali AuraAudio dibuka</sys:String>
+    <sys:String x:Key="Str_Fld_ExportLabel">Direktori Penyimpanan Ekspor Manual:</sys:String>
+    <sys:String x:Key="Str_Fld_BrowseBtn">Pilih Lokasi...</sys:String>
+    <sys:String x:Key="Str_Fld_StatusReady">Status: Siap</sys:String>
+    <sys:String x:Key="Str_Fld_RescanBtn">Pindai Ulang Pustaka</sys:String>
+    <sys:String x:Key="Str_Fld_PurgeBtn">Kosongkan Database</sys:String>
+    <sys:String x:Key="Str_Fld_FooterNote">Perubahan folder dan opsi disimpan secara otomatis.</sys:String>
+    <sys:String x:Key="Str_Fld_DoneBtn">Selesai</sys:String>
+
+    <!-- Modal Jalur Sinyal -->
+    <sys:String x:Key="Str_Sig_WindowTitle">Jalur Sinyal Audio - AuraAudio</sys:String>
+    <sys:String x:Key="Str_Sig_Title">Rincian Jalur Sinyal Audio</sys:String>
+    <sys:String x:Key="Str_Sig_Desc">Tahapan perjalanan data audio dari berkas penyimpanan hingga perangkat output Anda.</sys:String>
+    <sys:String x:Key="Str_Sig_OutputLocked">Output aktif ke:</sys:String>
+
+    <!-- Modal Playlist -->
+    <sys:String x:Key="Str_AddPl_WindowTitle">Tambahkan ke Playlist - AuraAudio</sys:String>
+    <sys:String x:Key="Str_AddPl_Title">Tambahkan ke Playlist</sys:String>
+    <sys:String x:Key="Str_AddPl_Desc">Pilih playlist yang sudah ada atau buat playlist baru.</sys:String>
+    <sys:String x:Key="Str_AddPl_Empty">Belum ada playlist tersimpan. Ketik nama di bawah untuk membuat playlist baru.</sys:String>
+    <sys:String x:Key="Str_AddPl_OrNewHeader">Atau buat playlist baru</sys:String>
+    <sys:String x:Key="Str_AddPl_CreateAndAddBtn">Buat &amp; Masukkan</sys:String>
+    <sys:String x:Key="Str_AddPl_AddBtn">Masukkan Lagu</sys:String>
+    <sys:String x:Key="Str_AddPl_CreateBtn">+ Buat Playlist &amp; Masukkan Lagu</sys:String>
+    <sys:String x:Key="Str_RenamePl_WindowTitle">Ganti Nama Playlist - AuraAudio</sys:String>
+    <sys:String x:Key="Str_RenamePl_Title">Ganti Nama Playlist</sys:String>
+    <sys:String x:Key="Str_RenamePl_Desc">Ketik nama baru untuk playlist ini:</sys:String>
+</ResourceDictionary>

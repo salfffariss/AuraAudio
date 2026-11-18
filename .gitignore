@@ -1,0 +1,45 @@
+## =========================================================================
+## .gitignore untuk Proyek AuraAudio (.NET 9 / WPF / SQLite)
+## =========================================================================
+
+# Build Outputs & Compilation Binaries
+[Bb]in/
+[Oo]bj/
+publish*/
+dist/
+*.exe
+!Assets/*.ico
+
+# Visual Studio & IDE Cache
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Database & Runtime Local Data (Generated per machine)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Logs & Temporary Test Files
+*.log
+crash.log
+test_lib_result.txt
+test_output.txt
+hasil_test*.txt
+*.txt.bak
+*.bak
+Program.cs.bak
+icon_preview.png
+inspect_*.ps1
+
+# OS Generated Files
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store

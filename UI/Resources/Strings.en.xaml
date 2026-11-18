@@ -1,0 +1,236 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- Branding -->
+    <sys:String x:Key="Str_Brand_Aura">AURA</sys:String>
+    <sys:String x:Key="Str_Brand_Audio"> AUDIO</sys:String>
+    <sys:String x:Key="Str_Brand_Tagline">Bit-Perfect Desktop Player</sys:String>
+
+    <!-- Sidebar Navigation -->
+    <sys:String x:Key="Str_Nav_MusicCollection">Library</sys:String>
+    <sys:String x:Key="Str_Nav_Songs">Music Library</sys:String>
+    <sys:String x:Key="Str_Nav_Albums">Albums</sys:String>
+    <sys:String x:Key="Str_Nav_Artists">Artists</sys:String>
+    <sys:String x:Key="Str_Nav_Queue">Play Queue</sys:String>
+    <sys:String x:Key="Str_Nav_Playlists">Playlists</sys:String>
+    <sys:String x:Key="Str_Nav_AudiophileTools">Audio Tools</sys:String>
+    <sys:String x:Key="Str_Nav_Inspector">Authenticity Check</sys:String>
+    <sys:String x:Key="Str_Nav_Hardware">DAC Settings</sys:String>
+    <sys:String x:Key="Str_Nav_Folders">Manage Music Folders</sys:String>
+
+    <!-- Top Bar -->
+    <sys:String x:Key="Str_Top_ManageFolders">Manage Folders</sys:String>
+    <sys:String x:Key="Str_Top_ManageFoldersTip">Manage monitored music directories and database</sys:String>
+    <sys:String x:Key="Str_Top_SearchPlaceholder">Search tracks, artists, or albums...</sys:String>
+    <sys:String x:Key="Str_Top_TracksIndexedSuffix">tracks indexed</sys:String>
+    <sys:String x:Key="Str_Top_LangButton">ID / EN</sys:String>
+    <sys:String x:Key="Str_Top_LangTip">Switch display language (Indonesian / English)</sys:String>
+
+    <!-- View Headers -->
+    <sys:String x:Key="Str_Header_SongsTitle">Local Music Library</sys:String>
+    <sys:String x:Key="Str_Header_SongsDesc">All indexed FLAC, WAV, ALAC, DSD, and MP3 tracks in your library folders.</sys:String>
+    <sys:String x:Key="Str_Header_AlbumsTitle">Albums</sys:String>
+    <sys:String x:Key="Str_Header_AlbumsDesc">Albums grouped automatically from audio metadata and embedded artwork.</sys:String>
+    <sys:String x:Key="Str_Header_ArtistsTitle">Artists</sys:String>
+    <sys:String x:Key="Str_Header_ArtistsDesc">Browse complete discographies grouped by artist name.</sys:String>
+    <sys:String x:Key="Str_Header_QueueTitle">Play Queue</sys:String>
+    <sys:String x:Key="Str_Header_QueueDesc">Manage and reorder active playback tracks.</sys:String>
+    <sys:String x:Key="Str_Header_PlaylistsTitle">Playlists</sys:String>
+    <sys:String x:Key="Str_Header_PlaylistsDesc">Manage your saved playlists or create a new one.</sys:String>
+
+    <!-- Buttons & Actions -->
+    <sys:String x:Key="Str_Btn_PlayAll">Play All</sys:String>
+    <sys:String x:Key="Str_Btn_ShuffleAll">Shuffle All</sys:String>
+    <sys:String x:Key="Str_Btn_Back">Back</sys:String>
+    <sys:String x:Key="Str_Btn_Play">Play</sys:String>
+    <sys:String x:Key="Str_Btn_Shuffle">Shuffle</sys:String>
+    <sys:String x:Key="Str_Btn_Details">View Details</sys:String>
+    <sys:String x:Key="Str_Btn_Save">Save</sys:String>
+    <sys:String x:Key="Str_Btn_Cancel">Cancel</sys:String>
+    <sys:String x:Key="Str_Btn_Close">Close</sys:String>
+    <sys:String x:Key="Str_Btn_Apply">Apply Settings</sys:String>
+
+    <!-- Table Headers -->
+    <sys:String x:Key="Str_Table_TrackNo">#</sys:String>
+    <sys:String x:Key="Str_Table_TitleAndArtist">Title &amp; Artist</sys:String>
+    <sys:String x:Key="Str_Table_Title">Title</sys:String>
+    <sys:String x:Key="Str_Table_Album">Album</sys:String>
+    <sys:String x:Key="Str_Table_Format">Audio Format</sys:String>
+    <sys:String x:Key="Str_Table_Duration">Duration</sys:String>
+    <sys:String x:Key="Str_Table_Art">Cover</sys:String>
+    <sys:String x:Key="Str_Table_Order">Actions</sys:String>
+
+    <!-- Player Bar -->
+    <sys:String x:Key="Str_Player_Playing">Playing</sys:String>
+    <sys:String x:Key="Str_Player_Paused">Paused</sys:String>
+    <sys:String x:Key="Str_Player_Stopped">Stopped</sys:String>
+    <sys:String x:Key="Str_Player_BitPerfectDirect">Bit-Perfect Direct</sys:String>
+    <sys:String x:Key="Str_Player_DspResampling">Mixer / Resampling Active</sys:String>
+
+    <!-- Context Menu -->
+    <sys:String x:Key="Str_Ctx_PlayNow">Play Track Now</sys:String>
+    <sys:String x:Key="Str_Ctx_PlayNext">Play Next</sys:String>
+    <sys:String x:Key="Str_Ctx_AddToQueue">Add to Queue</sys:String>
+    <sys:String x:Key="Str_Ctx_AddToPlaylist">Add to Playlist...</sys:String>
+    <sys:String x:Key="Str_Ctx_InspectAuthenticity">Inspect Audio Authenticity...</sys:String>
+    <sys:String x:Key="Str_Ctx_OpenFileLocation">Open File Location</sys:String>
+    <sys:String x:Key="Str_Ctx_RemoveFromQueue">Remove from Queue</sys:String>
+    <sys:String x:Key="Str_Ctx_RemoveFromPlaylist">Remove from Playlist</sys:String>
+    <sys:String x:Key="Str_Ctx_MoveUp">Move Up</sys:String>
+    <sys:String x:Key="Str_Ctx_MoveDown">Move Down</sys:String>
+
+    <!-- Queue View -->
+    <sys:String x:Key="Str_Queue_Badge">Play Queue</sys:String>
+    <sys:String x:Key="Str_Queue_Title">Play Queue</sys:String>
+    <sys:String x:Key="Str_Queue_SavePlaylist">Save as Playlist</sys:String>
+    <sys:String x:Key="Str_Queue_ExportM3u">Export M3U8</sys:String>
+    <sys:String x:Key="Str_Queue_ImportM3u">Import M3U</sys:String>
+    <sys:String x:Key="Str_Queue_Clear">Clear</sys:String>
+    <sys:String x:Key="Str_Queue_EmptyTitle">Your play queue is empty</sys:String>
+    <sys:String x:Key="Str_Queue_EmptyDesc">Right-click a song in your library and choose Add to Queue, or click Play All to start listening.</sys:String>
+    <sys:String x:Key="Str_Queue_BrowseLibraryBtn">Browse Music Library</sys:String>
+
+    <!-- Album Detail View -->
+    <sys:String x:Key="Str_AlbumDetail_Badge">Album</sys:String>
+    <sys:String x:Key="Str_AlbumDetail_HiRes">HI-RES</sys:String>
+    <sys:String x:Key="Str_AlbumDetail_PlayAlbum">Play Album</sys:String>
+    <sys:String x:Key="Str_AlbumDetail_ShuffleAlbum">Shuffle Album</sys:String>
+    <sys:String x:Key="Str_Album_TracksSuffix">tracks</sys:String>
+
+    <!-- Artist View -->
+    <sys:String x:Key="Str_Artist_Badge">Artist</sys:String>
+    <sys:String x:Key="Str_Artist_BackToArtists">Back to Artists</sys:String>
+    <sys:String x:Key="Str_Artist_RelatedAlbums">Related Albums</sys:String>
+    <sys:String x:Key="Str_Artist_CompleteDiscography">Complete Discography by Album</sys:String>
+
+    <!-- Inspector View -->
+    <sys:String x:Key="Str_Inspect_Title">Audio Authenticity &amp; Specification</sys:String>
+    <sys:String x:Key="Str_Inspect_Subtitle">Verify whether an audio file is genuinely lossless or upscaled from a lower-quality source.</sys:String>
+    <sys:String x:Key="Str_Inspect_OpenFile">Open Audio File...</sys:String>
+    <sys:String x:Key="Str_Inspect_Rescan">Rescan</sys:String>
+    <sys:String x:Key="Str_Inspect_EmptyTitle">No track selected for inspection</sys:String>
+    <sys:String x:Key="Str_Inspect_EmptyDesc">Right-click any track and choose Inspect Audio Authenticity, or open an audio file from your computer.</sys:String>
+    <sys:String x:Key="Str_Inspect_ErrorTitle">Could not inspect audio file</sys:String>
+    <sys:String x:Key="Str_Inspect_ChooseAnother">Choose Another File...</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecsHeading">File Specifications &amp; Quality Meaning</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecContainerTitle">Format &amp; Compression</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecFreqTitle">Frequency Bandwidth</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecBitTitle">Bit Depth Integrity</sys:String>
+    <sys:String x:Key="Str_Inspect_SpecOutputTitle">Device Output Path</sys:String>
+    <sys:String x:Key="Str_Inspect_TechnicalExpander">View Technical Measurements (FFT &amp; Bitstream)</sys:String>
+    <sys:String x:Key="Str_Inspect_EffectiveCutoff">Effective Frequency Cutoff</sys:String>
+    <sys:String x:Key="Str_Inspect_BitDepthIntegrity">Bit-Depth Integrity</sys:String>
+    <sys:String x:Key="Str_Inspect_HardwareOutput">Hardware Output Path</sys:String>
+    <sys:String x:Key="Str_Inspect_FftGraphTitle">Frequency Power Spectrum (0 dBFS to -145 dBFS)</sys:String>
+    <sys:String x:Key="Str_Inspect_LegendPowerSpectrum">Power Spectrum</sys:String>
+    <sys:String x:Key="Str_Inspect_LegendCdLimit">CD Limit (22.05 kHz)</sys:String>
+    <sys:String x:Key="Str_Inspect_LegendDetectedCutoff">Measured Cutoff</sys:String>
+    <sys:String x:Key="Str_Inspect_DsdNotice">Representative DSD Curve (Not Directly Measured)</sys:String>
+    <sys:String x:Key="Str_Inspect_LoadingTitle">Inspecting audio authenticity and frequency spectrum...</sys:String>
+    <sys:String x:Key="Str_Inspect_LoadingDesc">Scanning multi-segment spectrum envelope and bit integrity...</sys:String>
+    <sys:String x:Key="Str_Inspect_SpectralSlope">Transition Slope</sys:String>
+    <sys:String x:Key="Str_Inspect_EntropyLabel">LSB Shannon Entropy</sys:String>
+    <sys:String x:Key="Str_Inspect_DitherWarning">16-Bit Dither Floor Detected (-130.7 dBFS)</sys:String>
+    <sys:String x:Key="Str_Inspect_NoiseFloorLabel">Upper Noise Floor</sys:String>
+    <sys:String x:Key="Str_Inspect_TelemetryTitle">Technical Measurements</sys:String>
+    <sys:String x:Key="Str_Inspect_AnalyzedSegment">Analyzed Segment</sys:String>
+    <sys:String x:Key="Str_Inspect_ContainerFormat">Container Format</sys:String>
+    <sys:String x:Key="Str_Inspect_Power22k">Power @ 22.05 kHz / Nyquist</sys:String>
+    <sys:String x:Key="Str_Inspect_PowerNyquist">Power @ Physical Nyquist</sys:String>
+    <sys:String x:Key="Str_Inspect_NoiseStdDev">Upper Floor &amp; Variance</sys:String>
+    <sys:String x:Key="Str_Inspect_TechSegmentHint">High-energy timestamp from multi-window scan</sys:String>
+    <sys:String x:Key="Str_Inspect_TechKnee">Spectral Knee (-48 dB)</sys:String>
+    <sys:String x:Key="Str_Inspect_TechKneeHint">Frequency where energy drops 48 dB below main vocal band</sys:String>
+    <sys:String x:Key="Str_Inspect_TechSlopeHint">Steeper than -36 dB/oct indicates a sharp lowpass filter</sys:String>
+    <sys:String x:Key="Str_Inspect_TechDrop">Drop Across Knee</sys:String>
+    <sys:String x:Key="Str_Inspect_TechDropHint">Energy level drop directly across the knee frequency</sys:String>
+    <sys:String x:Key="Str_Inspect_TechPowersHint">Remaining energy at CD limit (22.05 kHz) and file Nyquist</sys:String>
+    <sys:String x:Key="Str_Inspect_TechLsb">Lower-Bit Activity &amp; Entropy</sys:String>
+    <sys:String x:Key="Str_Inspect_TechLsbHint">Lowest byte (LSB) activity and Shannon entropy (max 8.00 bit)</sys:String>
+    <sys:String x:Key="Str_Inspect_TechNoiseHint">Average noise floor level and standard deviation in upper band</sys:String>
+    <sys:String x:Key="Str_Inspect_TechImaging">Resampler Imaging Correlation</sys:String>
+    <sys:String x:Key="Str_Inspect_TechImagingHint">Values r &gt;= 0.65 suggest non-ideal resampler mirroring</sys:String>
+
+    <!-- Playlist View -->
+    <sys:String x:Key="Str_Playlist_Badge">Playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_Title">Playlists</sys:String>
+    <sys:String x:Key="Str_Playlist_Desc">Create and manage your favorite playlists.</sys:String>
+    <sys:String x:Key="Str_Playlist_CreateNewHeader">Create new playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_CreateBtn">+ Create</sys:String>
+    <sys:String x:Key="Str_Playlist_PlayPlaylist">Play Playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_ShufflePlaylist">Shuffle Playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_Rename">Rename</sys:String>
+    <sys:String x:Key="Str_Playlist_Delete">Delete</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptyNotice">No playlists saved yet. Enter a name above to create one.</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptySelectTitle">Select a playlist</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptySelectDesc">Choose a playlist on the left or create a new one to view its tracks.</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptyTracksTitle">This playlist is empty</sys:String>
+    <sys:String x:Key="Str_Playlist_EmptyTracksDesc">Right-click any track in Music Library and choose Add to Playlist to add songs.</sys:String>
+
+    <!-- Hardware Modal -->
+    <sys:String x:Key="Str_Hw_WindowTitle">DAC &amp; Audio Hardware Settings - AuraAudio</sys:String>
+    <sys:String x:Key="Str_Hw_Title">DAC &amp; Audio Hardware Configuration</sys:String>
+    <sys:String x:Key="Str_Hw_Desc">Output device selection, WASAPI Exclusive mode, buffer latency, and DSD playback method.</sys:String>
+    <sys:String x:Key="Str_Hw_ActiveDeviceHeader">Active Output Device</sys:String>
+    <sys:String x:Key="Str_Hw_RescanBtn">Rescan</sys:String>
+    <sys:String x:Key="Str_Hw_RescanTooltip">Rescan newly connected audio devices</sys:String>
+    <sys:String x:Key="Str_Hw_DriverModeHeader">Driver Mode &amp; Exclusivity</sys:String>
+    <sys:String x:Key="Str_Hw_ExclusiveTitle">WASAPI Exclusive (Bit-Perfect Direct Out)</sys:String>
+    <sys:String x:Key="Str_Hw_AudiophileStandardBadge">Recommended</sys:String>
+    <sys:String x:Key="Str_Hw_ExclusiveDesc">Locks soundcard hardware directly bypassing Windows Audio Mixer without OS resampling or volume scaling.</sys:String>
+    <sys:String x:Key="Str_Hw_SharedTitle">WASAPI Shared (Windows Mixer)</sys:String>
+    <sys:String x:Key="Str_Hw_SharedDesc">Allows simultaneous playback alongside other apps such as browsers and games. Output format is managed by Windows mixer.</sys:String>
+    <sys:String x:Key="Str_Hw_BufferLatencyHeader">Hardware Buffer Latency</sys:String>
+    <sys:String x:Key="Str_Hw_LatencyLowHint">20 ms (Responsive)</sys:String>
+    <sys:String x:Key="Str_Hw_LatencyOptimalHint">50 ms (Balanced)</sys:String>
+    <sys:String x:Key="Str_Hw_LatencySafeHint">250 ms (Max Stability)</sys:String>
+    <sys:String x:Key="Str_Hw_DsdHeader">SACD / DSD Playback Method</sys:String>
+    <sys:String x:Key="Str_Hw_DsdDopTitle">DoP 1.0 (DSD over PCM)</sys:String>
+    <sys:String x:Key="Str_Hw_DsdDopDesc">Packs raw DSD bitstream into 176.4/352.8 kHz PCM frames with 0x05/0xFA markers for DoP-compatible DACs.</sys:String>
+    <sys:String x:Key="Str_Hw_DsdDecimTitle">PCM Decimation (64-bit FIR Filter)</sys:String>
+    <sys:String x:Key="Str_Hw_DsdDecimDesc">Converts DSD cleanly into 24-bit PCM via linear-phase FIR filter for compatibility with all standard soundcards.</sys:String>
+    <sys:String x:Key="Str_Hw_FooterNote">Changes take effect immediately without restarting the player.</sys:String>
+    <sys:String x:Key="Str_Hw_ApplyBtn">Apply Settings</sys:String>
+
+    <!-- Folder Modal -->
+    <sys:String x:Key="Str_Fld_WindowTitle">Music Directory &amp; Library Manager - AuraAudio</sys:String>
+    <sys:String x:Key="Str_Fld_Title">Manage Music Folders &amp; Library</sys:String>
+    <sys:String x:Key="Str_Fld_Desc">Configure watched directories, exclude unwanted folders, and rescan your database.</sys:String>
+    <sys:String x:Key="Str_Fld_TabMonitored">Monitored Folders</sys:String>
+    <sys:String x:Key="Str_Fld_TabMonitoredDesc">AuraAudio scans all supported audio files inside these folders recursively:</sys:String>
+    <sys:String x:Key="Str_Fld_AddFolderBtn">Add Music Folder...</sys:String>
+    <sys:String x:Key="Str_Fld_RemoveFolderBtn">Remove Selected</sys:String>
+    <sys:String x:Key="Str_Fld_TabExcluded">Excluded Folders</sys:String>
+    <sys:String x:Key="Str_Fld_TabExcludedDesc">These folders are skipped during scanning (useful for game SFX or ringtones):</sys:String>
+    <sys:String x:Key="Str_Fld_AddExcludedBtn">Exclude Folder...</sys:String>
+    <sys:String x:Key="Str_Fld_RemoveExcludedBtn">Remove Exclusion</sys:String>
+    <sys:String x:Key="Str_Fld_TabOptions">Options &amp; Export</sys:String>
+    <sys:String x:Key="Str_Fld_AutoScanLabel">Automatically scan music folders whenever AuraAudio starts</sys:String>
+    <sys:String x:Key="Str_Fld_ExportLabel">Manual Export Directory:</sys:String>
+    <sys:String x:Key="Str_Fld_BrowseBtn">Browse...</sys:String>
+    <sys:String x:Key="Str_Fld_StatusReady">Status: Ready</sys:String>
+    <sys:String x:Key="Str_Fld_RescanBtn">Rescan Music Library</sys:String>
+    <sys:String x:Key="Str_Fld_PurgeBtn">Clear Database</sys:String>
+    <sys:String x:Key="Str_Fld_FooterNote">Directory changes and preferences are saved automatically.</sys:String>
+    <sys:String x:Key="Str_Fld_DoneBtn">Done</sys:String>
+
+    <!-- Signal Path Modal -->
+    <sys:String x:Key="Str_Sig_WindowTitle">Audio Signal Path - AuraAudio</sys:String>
+    <sys:String x:Key="Str_Sig_Title">Audio Signal Path Breakdown</sys:String>
+    <sys:String x:Key="Str_Sig_Desc">Step-by-step chain from local audio file to your active output device.</sys:String>
+    <sys:String x:Key="Str_Sig_OutputLocked">Output routed to:</sys:String>
+
+    <!-- Playlist Modals -->
+    <sys:String x:Key="Str_AddPl_WindowTitle">Add to Playlist - AuraAudio</sys:String>
+    <sys:String x:Key="Str_AddPl_Title">Add to Playlist</sys:String>
+    <sys:String x:Key="Str_AddPl_Desc">Choose an existing playlist or create a new one.</sys:String>
+    <sys:String x:Key="Str_AddPl_Empty">No playlists saved yet. Type a name below to create a new playlist.</sys:String>
+    <sys:String x:Key="Str_AddPl_OrNewHeader">Or create a new playlist</sys:String>
+    <sys:String x:Key="Str_AddPl_CreateAndAddBtn">Create &amp; Add</sys:String>
+    <sys:String x:Key="Str_AddPl_AddBtn">Add Track</sys:String>
+    <sys:String x:Key="Str_AddPl_CreateBtn">+ Create Playlist &amp; Add Track</sys:String>
+    <sys:String x:Key="Str_RenamePl_WindowTitle">Rename Playlist - AuraAudio</sys:String>
+    <sys:String x:Key="Str_RenamePl_Title">Rename Playlist</sys:String>
+    <sys:String x:Key="Str_RenamePl_Desc">Enter the new name for this playlist:</sys:String>
+</ResourceDictionary>
