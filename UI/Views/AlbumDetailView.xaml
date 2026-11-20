@@ -1,237 +1,481 @@
 <UserControl x:Class="AuraAudio.UI.Views.AlbumDetailView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-             xmlns:models="clr-namespace:AuraAudio.Core.Models"
-             mc:Ignorable="d" 
-             d:DesignHeight="700" d:DesignWidth="900">
+             xmlns:controls="clr-namespace:AuraAudio.UI.Controls"
+             xmlns:helpers="clr-namespace:AuraAudio.UI.Helpers"
+             x:Name="Root"
+             AutomationProperties.AutomationId="Aura.AlbumDetail.Root"
+             Background="{StaticResource Brush.Canvas}">
 
-    <Grid Background="Transparent">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" /> <!-- Back Button & Hero Album Banner -->
-            <RowDefinition Height="*" />    <!-- Tracklist Table -->
-        </Grid.RowDefinitions>
+    <Grid>
+        <!-- Main Scrollable Content -->
+        <ScrollViewer x:Name="AlbumScroll"
+                      Focusable="False"
+                      FocusVisualStyle="{x:Null}"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      ScrollChanged="AlbumScroll_ScrollChanged">
+            <StackPanel MaxWidth="{StaticResource Width.MaxContent}"
+                        Margin="{StaticResource Padding.PageContent}">
 
-        <!-- ========================================================================= -->
-        <!-- 1. BACK BUTTON & HERO ALBUM BANNER                                        -->
-        <!-- ========================================================================= -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,16">
-            <!-- Back Button -->
-            <Button Command="{Binding BackFromAlbumDetailCommand}" 
-                    Style="{StaticResource Style.Button.Transport}" 
-                    HorizontalAlignment="Left" 
-                    Padding="10,6" Margin="0,0,0,14" 
-                    ToolTip="Kembali ke tampilan sebelumnya">
-                <StackPanel Orientation="Horizontal">
-                    <Path Data="{StaticResource Icon.ArrowLeft}" Stroke="{StaticResource Brush.Accent.Gold}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center" />
-                    <TextBlock Text="{DynamicResource Str_Btn_Back}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Brush.Text.Primary}" VerticalAlignment="Center" />
-                </StackPanel>
-            </Button>
-
-            <!-- Hero Banner Card -->
-            <Border Background="{StaticResource Brush.Background.Card}" 
-                    BorderBrush="{StaticResource Brush.Border.Subtle}" 
-                    BorderThickness="1" 
-                    CornerRadius="12" 
-                    Padding="20">
-                <Grid>
+                <!-- 270x270 Apple Music AlbumDetailHeaderLockup (Spec B.6, Zero DropShadowEffect) -->
+                <Grid Margin="0,0,0,28">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="270" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <!-- Large Album Cover -->
-                    <Border Grid.Column="0" Width="150" Height="150" 
-                            CornerRadius="8" 
-                            Background="{StaticResource Brush.Background.Sidebar}" 
-                            BorderBrush="{StaticResource Brush.Border.Subtle}" 
-                            BorderThickness="1" 
-                            ClipToBounds="True" 
-                            Margin="0,0,22,0">
-                        <Grid>
-                            <Path Data="{StaticResource Icon.Disc}" Stroke="{StaticResource Brush.Text.Tertiary}" StrokeThickness="1.5" Width="44" Height="44" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55" />
-                            <Image Source="{Binding SelectedAlbumDetail.CoverArtCacheKey, Converter={StaticResource CoverArtConverter}}" Stretch="UniformToFill" />
-                        </Grid>
-                    </Border>
-
-                    <!-- Album Metadata -->
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                        <Border HorizontalAlignment="Left" Background="{StaticResource Brush.Background.Sidebar}" BorderBrush="{StaticResource Brush.Accent.Gold}" BorderThickness="1" CornerRadius="4" Padding="7,2" Margin="0,0,0,6"
-                                Visibility="{Binding SelectedAlbumDetail.IsHiRes, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <TextBlock Text="{DynamicResource Str_AlbumDetail_HiRes}" FontSize="10" FontWeight="Bold" Foreground="{StaticResource Brush.Accent.Gold}" />
+                    <!-- 270x270 Square Artwork (CornerRadius=14px via ImageBrush, Draggable to Sidebar Playlists) -->
+                    <Grid Grid.Column="0"
+                          Width="270" Height="270"
+                          Cursor="Hand"
+                          PreviewMouseLeftButtonDown="Draggable_PreviewMouseLeftButtonDown"
+                          MouseMove="AlbumHeroArt_MouseMove">
+                        <Border CornerRadius="{StaticResource Radius.HeroArt}"
+                                Background="{StaticResource Brush.Surface}"
+                                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                BorderThickness="1">
+                            <Path Width="56" Height="56" Stretch="Uniform"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Stroke="{StaticResource Brush.Icon.Muted}"
+                                  StrokeThickness="1.3"
+                                  Data="M8,22 A3.5,3.5 0 1 1 1,22 A3.5,3.5 0 1 1 8,22 M8,22 L8,4 L24,1.5 L24,19.5 M24,19.5 A3.5,3.5 0 1 1 17,19.5 A3.5,3.5 0 1 1 24,19.5" />
                         </Border>
-
-                        <!-- Album Title -->
-                        <TextBlock Text="{Binding SelectedAlbumDetail.Title}" 
-                                   FontSize="24" FontWeight="Bold" 
-                                   Foreground="{StaticResource Brush.Text.Primary}" 
-                                   TextTrimming="CharacterEllipsis" 
-                                   ToolTip="{Binding SelectedAlbumDetail.Title}" />
-
-                        <!-- Artist Name -->
-                        <TextBlock Text="{Binding SelectedAlbumDetail.Artist}" 
-                                   FontSize="15" FontWeight="SemiBold" 
-                                   Foreground="{StaticResource Brush.Accent.Gold}" 
-                                   Margin="0,4,0,0" 
-                                   TextTrimming="CharacterEllipsis" />
-
-                        <!-- Summary (Tracks count, total duration, year) -->
-                        <TextBlock Text="{Binding AlbumDetailSummaryText}" 
-                                   FontSize="12" Foreground="{StaticResource Brush.Text.Tertiary}" 
-                                   Margin="0,6,0,0" />
-                    </StackPanel>
-
-                    <!-- Play & Shuffle Action Buttons -->
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button Style="{StaticResource Style.Button.Transport}" 
-                                Command="{Binding ShuffleCurrentAlbumDetailCommand}" 
-                                Padding="14,8" Height="36" Margin="0,0,10,0">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource Icon.Shuffle}" Stroke="{StaticResource Brush.Text.Secondary}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center" />
-                                <TextBlock Text="{DynamicResource Str_AlbumDetail_ShuffleAlbum}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Brush.Text.Primary}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-
-                        <Button Command="{Binding PlayCurrentAlbumDetailCommand}" 
-                                Style="{StaticResource Style.Button.Primary}"
-                                Padding="18,0" Height="36">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Fill="#111114" Data="{StaticResource Icon.Play}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center" />
-                                <TextBlock Text="{DynamicResource Str_AlbumDetail_PlayAlbum}" FontSize="12" FontWeight="Bold" Foreground="#111114" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </Grid>
-            </Border>
-        </StackPanel>
-
-        <!-- ========================================================================= -->
-        <!-- 2. DAFTAR LAGU DALAM ALBUM (TABLE VIEW)                                   -->
-        <!-- ========================================================================= -->
-        <Border Grid.Row="1" 
-                Background="{StaticResource Brush.Background.Card}" 
-                BorderBrush="{StaticResource Brush.Border.Subtle}" 
-                BorderThickness="1" 
-                CornerRadius="10">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="34" /> <!-- Table Headers -->
-                    <RowDefinition Height="*" />  <!-- ListBox Tracks -->
-                </Grid.RowDefinitions>
-
-                <!-- Table Column Headers -->
-                <Border Grid.Row="0" Background="{StaticResource Brush.Background.Sidebar}" BorderBrush="{StaticResource Brush.Border.Subtle}" BorderThickness="0,0,0,1" Padding="16,0">
-                    <Grid VerticalAlignment="Center">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="40" />
-                            <ColumnDefinition Width="4*" />
-                            <ColumnDefinition Width="150" />
-                            <ColumnDefinition Width="70" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="{DynamicResource Str_Table_TrackNo}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Brush.Text.Tertiary}" />
-                        <TextBlock Grid.Column="1" Text="{DynamicResource Str_Table_Title}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Brush.Text.Tertiary}" />
-                        <TextBlock Grid.Column="2" Text="{DynamicResource Str_Table_Format}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Brush.Text.Tertiary}" />
-                        <TextBlock Grid.Column="3" Text="{DynamicResource Str_Table_Duration}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Brush.Text.Tertiary}" HorizontalAlignment="Right" />
+                        <Border CornerRadius="{StaticResource Radius.HeroArt}"
+                                RenderOptions.BitmapScalingMode="HighQuality"
+                                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                BorderThickness="1">
+                            <Border.Background>
+                                <ImageBrush Stretch="UniformToFill"
+                                            ImageSource="{Binding SelectedAlbumDetail.CoverArtCacheKey, Converter={StaticResource CoverArtConverter}, ConverterParameter=Large}" />
+                            </Border.Background>
+                        </Border>
                     </Grid>
-                </Border>
 
-                <!-- ListBox Tracks -->
-                <ListBox Grid.Row="1" 
-                         ItemsSource="{Binding SelectedAlbumDetailTracks}" 
-                         Background="Transparent" 
-                         BorderThickness="0" 
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" 
-                         ScrollViewer.VerticalScrollBarVisibility="Auto" 
-                         MouseDoubleClick="AlbumDetailListBox_MouseDoubleClick">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Background" Value="Transparent" />
-                            <Setter Property="BorderThickness" Value="0,0,0,1" />
-                            <Setter Property="BorderBrush" Value="#22222B" />
-                            <Setter Property="Height" Value="44" />
-                            <Setter Property="Padding" Value="16,0" />
-                            <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListBox}}" />
-                            <EventSetter Event="PreviewMouseRightButtonDown" Handler="OnListBoxItemPreviewMouseRightButtonDown" />
-                            <Setter Property="ContextMenu">
-                                <Setter.Value>
-                                    <ContextMenu DataContext="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource Self}}">
-                                        <MenuItem Header="{DynamicResource Str_Ctx_PlayNow}" Command="{Binding PlayAlbumDetailTrackCommand}" CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                        <MenuItem Header="{DynamicResource Str_Ctx_PlayNext}" Command="{Binding PlayNextCommand}" CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                        <MenuItem Header="{DynamicResource Str_Ctx_AddToQueue}" Command="{Binding AddToQueueCommand}" CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                        <MenuItem Header="{DynamicResource Str_Ctx_AddToPlaylist}" Command="{Binding AddToPlaylistCommand}" CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Foreground="{StaticResource Brush.Accent.Gold}" />
-                                        <Separator />
-                                        <MenuItem Header="{DynamicResource Str_Ctx_InspectAuthenticity}" Command="{Binding InspectTrackCommand}" CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Foreground="{StaticResource Brush.Accent.Gold}" />
-                                        <MenuItem Header="{DynamicResource Str_Ctx_OpenFileLocation}" Command="{Binding OpenFileLocationCommand}" CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                    </ContextMenu>
-                                </Setter.Value>
-                            </Setter>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="itemBorder" 
-                                                Background="{TemplateBinding Background}" 
-                                                BorderBrush="{TemplateBinding BorderBrush}" 
-                                                BorderThickness="{TemplateBinding BorderThickness}" 
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter VerticalAlignment="Center" />
-                                        </Border>
+                    <!-- Right Metadata & Bottom-Anchored Action Row -->
+                    <Grid Grid.Column="1" Margin="28,0,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                            <TextBlock Text="ALBUM"
+                                       Style="{StaticResource Text.Eyebrow}"
+                                       Margin="0,0,0,6" />
+
+                            <!-- 26px Bold Album Title -->
+                            <TextBlock Text="{Binding SelectedAlbumDetail.Title, FallbackValue='Album'}"
+                                       FontFamily="{StaticResource Font.Display}"
+                                       FontSize="26"
+                                       LineHeight="32"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource Brush.Text.Peak}"
+                                       TextWrapping="Wrap" />
+
+                            <!-- 26px Regular Clickable Artist Link (Cross-Link -> ArtistDetailView) -->
+                            <Button HorizontalAlignment="Left"
+                                    Margin="0,4,0,0"
+                                    Cursor="Hand"
+                                    AutomationProperties.AutomationId="Aura.AlbumDetail.ArtistLink"
+                                    FocusVisualStyle="{StaticResource Style.FocusVisual.Monochrome}"
+                                    Command="{Binding NavigateToArtistLinkCommand}"
+                                    CommandParameter="{Binding SelectedAlbumDetail.Artist}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <StackPanel Orientation="Horizontal" Background="Transparent">
+                                            <TextBlock x:Name="ArtistLinkText"
+                                                       Text="{Binding SelectedAlbumDetail.Artist}"
+                                                       FontFamily="{StaticResource Font.Display}"
+                                                       FontSize="26"
+                                                       LineHeight="32"
+                                                       FontWeight="Normal"
+                                                       Foreground="{StaticResource Brush.Text.Secondary}" />
+                                            <TextBlock x:Name="ArtistChevron"
+                                                       Text="›"
+                                                       Margin="6,2,0,0"
+                                                       FontSize="24"
+                                                       Foreground="{StaticResource Brush.Text.Tertiary}"
+                                                       VerticalAlignment="Center" />
+                                        </StackPanel>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="itemBorder" Property="Background" Value="{StaticResource Brush.Background.CardHover}" />
-                                            </Trigger>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="itemBorder" Property="Background" Value="#25252E" />
+                                                <Setter TargetName="ArtistLinkText" Property="Foreground" Value="{StaticResource Brush.Text.Peak}" />
+                                                <Setter TargetName="ArtistLinkText" Property="TextDecorations" Value="Underline" />
+                                                <Setter TargetName="ArtistChevron" Property="Foreground" Value="{StaticResource Brush.Text.Peak}" />
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate DataType="{x:Type models:Track}">
-                            <Grid VerticalAlignment="Center">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="40" />
-                                    <ColumnDefinition Width="4*" />
-                                    <ColumnDefinition Width="150" />
-                                    <ColumnDefinition Width="70" />
-                                </Grid.ColumnDefinitions>
+                                </Button.Template>
+                            </Button>
 
-                                <!-- Track Number -->
-                                <TextBlock Grid.Column="0" Text="{Binding TrackNumber}" FontSize="12" Foreground="{StaticResource Brush.Text.Tertiary}" VerticalAlignment="Center" />
-
-                                <!-- Judul Lagu & Artis (jika berbeda dari artis album) -->
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
-                                    <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Brush.Text.Primary}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding Artist}" FontSize="11.5" Foreground="{StaticResource Brush.Text.Tertiary}" TextTrimming="CharacterEllipsis" Margin="0,1,0,0" />
-                                </StackPanel>
-
-                                <!-- Format Badge -->
-                                <Border Grid.Column="2" 
-                                        Background="{StaticResource Brush.Background.CardHover}" 
-                                        BorderBrush="{StaticResource Brush.Border.Subtle}" 
-                                        BorderThickness="1" 
-                                        CornerRadius="4" 
-                                        HorizontalAlignment="Left" 
-                                        VerticalAlignment="Center" 
-                                        Padding="6,2">
-                                    <TextBlock Text="{Binding StreamSpec.FormattedBadge}" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Brush.Accent.Gold}" />
-                                </Border>
-
-                                <!-- Durasi -->
-                                <TextBlock Grid.Column="3" 
-                                           Text="{Binding Duration, Converter={StaticResource TimeSpanToStringConverter}}" 
-                                           FontSize="11.5" 
-                                           Foreground="{StaticResource Brush.Text.Tertiary}" 
-                                           HorizontalAlignment="Right" 
+                            <!-- 12px SemiBold Metadata + AudioBadge + HI-RES Tag -->
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding AlbumDetailSummaryText}"
+                                           Style="{StaticResource Text.Callout}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource Brush.Text.Tertiary}"
                                            VerticalAlignment="Center" />
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+
+                                <Button Margin="10,0,0,0"
+                                        Cursor="Hand"
+                                        FocusVisualStyle="{StaticResource Style.FocusVisual.Monochrome}"
+                                        Command="{Binding Presentation.ToggleSignalPathFlyoutCommand}"
+                                        Visibility="{Binding AlbumDetailAudioBadge, Converter={StaticResource NullToVisibilityConverter}}"
+                                        ToolTip="View Bit-Perfect Signal Path">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="BadgeBd"
+                                                    Padding="6,2"
+                                                    CornerRadius="{StaticResource Radius.Badge}"
+                                                    Background="{StaticResource Brush.Elevated}"
+                                                    BorderBrush="{StaticResource Brush.Border.Control}"
+                                                    BorderThickness="1">
+                                                <TextBlock Text="{Binding AlbumDetailAudioBadge}"
+                                                           Style="{StaticResource Text.TabularMono}"
+                                                           FontSize="10"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{StaticResource Brush.Text.Primary}" />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="BadgeBd" Property="BorderBrush" Value="{StaticResource Brush.Border.Strong}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
+
+                                <Border Margin="6,0,0,0"
+                                        Padding="5,2"
+                                        CornerRadius="{StaticResource Radius.Badge}"
+                                        Background="{StaticResource Brush.Selected.PillFill}"
+                                        VerticalAlignment="Center"
+                                        Visibility="{Binding SelectedAlbumDetail.IsHiRes, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <TextBlock Text="HI-RES"
+                                               Style="{StaticResource Text.Footnote}"
+                                               FontSize="9"
+                                               FontWeight="Bold"
+                                               Foreground="{StaticResource Brush.Selected.PillInk}" />
+                                </Border>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Primary Action Buttons -->
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Bottom">
+                            <Button Style="{StaticResource Style.Button.Primary}"
+                                    Content="Play"
+                                    Command="{Binding PlayCurrentAlbumDetailCommand}" />
+                            <Button Style="{StaticResource Style.Button.Secondary}"
+                                    Margin="8,0,0,0"
+                                    Content="Shuffle"
+                                    Command="{Binding ShuffleCurrentAlbumDetailCommand}" />
+                            <Button Style="{StaticResource Style.Button.Icon}"
+                                    Width="36" Height="36"
+                                    Margin="8,0,0,0"
+                                    Click="AlbumMoreButton_Click"
+                                    ToolTip="More Album Options">
+                                <Button.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Play Next"
+                                                  Command="{Binding PlayAlbumNextCommand}"
+                                                  CommandParameter="{Binding SelectedAlbumDetail}" />
+                                        <MenuItem Header="Add to Queue"
+                                                  Command="{Binding AddAlbumToQueueCommand}"
+                                                  CommandParameter="{Binding SelectedAlbumDetail}" />
+                                        <Separator />
+                                        <MenuItem Header="Go to Artist"
+                                                  Command="{Binding NavigateToArtistLinkCommand}"
+                                                  CommandParameter="{Binding SelectedAlbumDetail.Artist}" />
+                                    </ContextMenu>
+                                </Button.ContextMenu>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Ellipse Width="3" Height="3" Fill="{StaticResource Brush.Icon.Default}" Margin="1.5,0" />
+                                    <Ellipse Width="3" Height="3" Fill="{StaticResource Brush.Icon.Default}" Margin="1.5,0" />
+                                    <Ellipse Width="3" Height="3" Fill="{StaticResource Brush.Icon.Default}" Margin="1.5,0" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+
+                <!-- Hairline Tracklist (40px rows, Zebra #08FFFFFF, Active #FFF Bold + BouncyBar) -->
+                <Border BorderBrush="{StaticResource Brush.Border.Hairline}"
+                        BorderThickness="0,1,0,0">
+                    <ListBox x:Name="AlbumTrackList"
+                             Style="{StaticResource Style.ListBox.Inline}"
+                             ItemsSource="{Binding SelectedAlbumDetailTracks}"
+                             AlternationCount="2"
+                             MouseDoubleClick="AlbumTrackList_MouseDoubleClick"
+                             PreviewKeyDown="AlbumTrackList_PreviewKeyDown"
+                             PreviewMouseLeftButtonDown="Draggable_PreviewMouseLeftButtonDown"
+                             MouseMove="AlbumTrackList_MouseMove">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Height" Value="{StaticResource Height.Row}" />
+                                <Setter Property="Padding" Value="8,0" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="VerticalContentAlignment" Value="Center" />
+                                <Setter Property="FocusVisualStyle" Value="{StaticResource Style.FocusVisual.Monochrome}" />
+                                <Setter Property="Tag" Value="{Binding DataContext, ElementName=Root}" />
+                                <Setter Property="ContextMenu">
+                                    <Setter.Value>
+                                        <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                            <MenuItem Header="Play"
+                                                      Command="{Binding PlacementTarget.Tag.PlayAlbumDetailTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                            <MenuItem Header="Play Next"
+                                                      Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                            <MenuItem Header="Add to Queue"
+                                                      Command="{Binding PlacementTarget.Tag.AddToQueueCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                            <MenuItem Header="Add to Playlist..."
+                                                      Command="{Binding PlacementTarget.Tag.AddToPlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                            <Separator />
+                                            <MenuItem Header="Go to Artist"
+                                                      Command="{Binding PlacementTarget.Tag.NavigateToArtistLinkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                            <MenuItem Header="Get Info"
+                                                      InputGestureText="Ctrl+I"
+                                                      Command="{Binding PlacementTarget.Tag.OpenInfoForTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                            <MenuItem Header="Inspect Audio Authenticity"
+                                                      Command="{Binding PlacementTarget.Tag.InspectTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                            <Separator />
+                                            <MenuItem Header="Show in Explorer"
+                                                      Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                      CommandParameter="{Binding}" />
+                                        </ContextMenu>
+                                    </Setter.Value>
+                                </Setter>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="RowBd"
+                                                    Background="{TemplateBinding Background}"
+                                                    BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                                    BorderThickness="0,0,0,0.5"
+                                                    CornerRadius="{StaticResource Radius.Small}"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <Grid>
+                                                    <Border x:Name="SelBar"
+                                                            Width="3"
+                                                            HorizontalAlignment="Left"
+                                                            Margin="-8,4,0,4"
+                                                            CornerRadius="1.5"
+                                                            Background="{StaticResource Brush.Border.Strong}"
+                                                            Visibility="Collapsed" />
+                                                    <ContentPresenter VerticalAlignment="Center" />
+                                                </Grid>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                                                    <Setter TargetName="RowBd" Property="Background" Value="{StaticResource Brush.Overlay.ZebraRow}" />
+                                                </Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="RowBd" Property="Background" Value="{StaticResource Brush.Hover.Dark}" />
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="RowBd" Property="Background" Value="{StaticResource Brush.SelectedRow}" />
+                                                    <Setter TargetName="SelBar" Property="Visibility" Value="Visible" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="40" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="60" />
+                                        <ColumnDefinition Width="32" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Track # / BouncyBar / Hover Play -->
+                                    <Grid Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <controls:BouncyBarControl>
+                                            <controls:BouncyBarControl.IsActive>
+                                                <MultiBinding Converter="{StaticResource ActiveTrackPlayingMultiConverter}">
+                                                    <Binding Path="FilePath" />
+                                                    <Binding Path="DataContext.CurrentTrack.FilePath" ElementName="Root" />
+                                                    <Binding Path="DataContext.IsPlaying" ElementName="Root" />
+                                                </MultiBinding>
+                                            </controls:BouncyBarControl.IsActive>
+                                            <controls:BouncyBarControl.Visibility>
+                                                <MultiBinding Converter="{StaticResource ActiveTrackPlayingMultiConverter}">
+                                                    <Binding Path="FilePath" />
+                                                    <Binding Path="DataContext.CurrentTrack.FilePath" ElementName="Root" />
+                                                    <Binding Path="DataContext.IsPlaying" ElementName="Root" />
+                                                </MultiBinding>
+                                            </controls:BouncyBarControl.Visibility>
+                                        </controls:BouncyBarControl>
+
+                                        <TextBlock x:Name="NumTxt"
+                                                   Text="{Binding TrackNumber}"
+                                                   Style="{StaticResource Text.TabularMono}"
+                                                   VerticalAlignment="Center">
+                                            <TextBlock.Visibility>
+                                                <MultiBinding Converter="{StaticResource ActiveTrackPlayingMultiConverter}" ConverterParameter="Inverse">
+                                                    <Binding Path="FilePath" />
+                                                    <Binding Path="DataContext.CurrentTrack.FilePath" ElementName="Root" />
+                                                    <Binding Path="DataContext.IsPlaying" ElementName="Root" />
+                                                </MultiBinding>
+                                            </TextBlock.Visibility>
+                                        </TextBlock>
+
+                                        <Button x:Name="HoverPlayBtn"
+                                                Style="{StaticResource Style.Button.Icon}"
+                                                Width="26" Height="26"
+                                                Visibility="Collapsed"
+                                                Command="{Binding DataContext.PlayAlbumDetailTrackCommand, ElementName=Root}"
+                                                CommandParameter="{Binding}">
+                                            <Path Width="10" Height="11" Margin="2,0,0,0" Stretch="Uniform"
+                                                  Fill="{StaticResource Brush.Icon.Active}"
+                                                  Data="M1,0.5 L10,5.5 L1,10.5 Z" />
+                                        </Button>
+                                    </Grid>
+
+                                    <!-- Track Title -->
+                                    <StackPanel Grid.Column="1" Margin="6,0,12,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="TitleTxt"
+                                                   Text="{Binding Title}"
+                                                   Style="{StaticResource Text.Body}" />
+                                    </StackPanel>
+
+                                    <!-- Clickable Monochrome AudioBadge -->
+                                    <Button Grid.Column="2"
+                                            Margin="8,0"
+                                            VerticalAlignment="Center"
+                                            Cursor="Hand"
+                                            Command="{Binding DataContext.Presentation.ToggleSignalPathFlyoutCommand, ElementName=Root}"
+                                            ToolTip="Bit-Perfect Audio Stream Spec">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="SpecBd"
+                                                        Padding="6,2"
+                                                        CornerRadius="{StaticResource Radius.Badge}"
+                                                        Background="{StaticResource Brush.Surface}"
+                                                        BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                                        BorderThickness="1">
+                                                    <TextBlock Text="{Binding StreamSpec.FormattedBadge}"
+                                                               Style="{StaticResource Text.TabularMono}"
+                                                               FontSize="10" />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="SpecBd" Property="BorderBrush" Value="{StaticResource Brush.Border.Control}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+
+                                    <!-- Duration -->
+                                    <TextBlock Grid.Column="3"
+                                               Text="{Binding FormattedDuration}"
+                                               Style="{StaticResource Text.TabularMono}"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Center" />
+
+                                    <!-- Hover More Button -->
+                                    <Button x:Name="RowMoreBtn"
+                                            Grid.Column="4"
+                                            Style="{StaticResource Style.Button.Icon}"
+                                            Width="26" Height="26"
+                                            Visibility="Collapsed"
+                                            Click="RowMoreButton_Click"
+                                            ToolTip="More Options">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Ellipse Width="3" Height="3" Fill="{StaticResource Brush.Icon.Default}" Margin="1,0" />
+                                            <Ellipse Width="3" Height="3" Fill="{StaticResource Brush.Icon.Default}" Margin="1,0" />
+                                            <Ellipse Width="3" Height="3" Fill="{StaticResource Brush.Icon.Default}" Margin="1,0" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                        <Setter TargetName="NumTxt" Property="Visibility" Value="Collapsed" />
+                                        <Setter TargetName="HoverPlayBtn" Property="Visibility" Value="Visible" />
+                                        <Setter TargetName="RowMoreBtn" Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <DataTrigger Value="True">
+                                        <DataTrigger.Binding>
+                                            <MultiBinding Converter="{StaticResource StringEqualsMultiConverter}">
+                                                <Binding Path="FilePath" />
+                                                <Binding Path="DataContext.CurrentTrack.FilePath" ElementName="Root" />
+                                            </MultiBinding>
+                                        </DataTrigger.Binding>
+                                        <Setter TargetName="TitleTxt" Property="Foreground" Value="{StaticResource Brush.Text.Peak}" />
+                                        <Setter TargetName="TitleTxt" Property="FontWeight" Value="Bold" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+
+                <!-- ContainerDetailTracklistFooter (Spec B.6) -->
+                <TextBlock Text="{Binding AlbumDetailFooterText}"
+                           Style="{StaticResource Text.Callout}"
+                           Foreground="{StaticResource Brush.Text.Tertiary}"
+                           Margin="4,24,0,0" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Sticky Compact Header Bar (Appears cleanly when scrolled past 270x270 hero) -->
+        <Border x:Name="StickyHeaderBar"
+                Height="48"
+                VerticalAlignment="Top"
+                Opacity="0"
+                Visibility="Collapsed"
+                Padding="30,0"
+                Background="{StaticResource Brush.DockBackground}"
+                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                BorderThickness="0,0,0,1">
+            <Grid MaxWidth="{StaticResource Width.MaxContent}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0"
+                        Width="30" Height="30"
+                        CornerRadius="{StaticResource Radius.Small}"
+                        BorderBrush="{StaticResource Brush.Border.Hairline}"
+                        BorderThickness="1"
+                        Margin="0,0,12,0"
+                        VerticalAlignment="Center">
+                    <Border.Background>
+                        <ImageBrush Stretch="UniformToFill"
+                                    ImageSource="{Binding SelectedAlbumDetail.CoverArtCacheKey, Converter={StaticResource CoverArtConverter}, ConverterParameter=Mini}" />
+                    </Border.Background>
+                </Border>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <TextBlock Text="{Binding SelectedAlbumDetail.Title}"
+                               Style="{StaticResource Text.Subheadline}"
+                               Foreground="{StaticResource Brush.Text.Peak}" />
+                    <TextBlock Text="{Binding SelectedAlbumDetail.Artist}"
+                               Style="{StaticResource Text.Footnote}" />
+                </StackPanel>
+
+                <Button Grid.Column="2"
+                        Style="{StaticResource Style.Button.Primary}"
+                        Height="30"
+                        Padding="14,0"
+                        Content="Play"
+                        Command="{Binding PlayCurrentAlbumDetailCommand}" />
             </Grid>
         </Border>
     </Grid>

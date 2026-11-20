@@ -22,6 +22,9 @@ public interface IAudioOutputEngine : IDisposable
     /// <summary>Menandakan apakah hardware terkunci dalam mode Bit-Perfect Exclusive</summary>
     bool IsExclusiveLocked { get; }
 
+    /// <summary>Volume output linier UI (0.0f = senyap, 1.0f = bit-exact unity gain)</summary>
+    float Volume { get; set; }
+
     /// <summary>Event notifikasi saat status pemutaran berubah</summary>
     event EventHandler<PlaybackStatus>? StatusChanged;
 

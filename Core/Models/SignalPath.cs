@@ -84,16 +84,4 @@ public record SignalPathSummary
         SignalPathQuality.ResampledOrDegraded  => "RESAMPLED (OS MIXER)",
         _                                      => "UNKNOWN"
     };
-
-    /// <summary>
-    /// Kode warna UI untuk merepresentasikan kualitas fidelitas.
-    /// Gold/Ungu = BitPerfect, Hijau/Biru = Enhanced, Oranye = Resampled.
-    /// </summary>
-    public string BadgeColorHex => OverallQuality switch
-    {
-        SignalPathQuality.BitPerfect           => "#E5A93C", // Gold Audiophile
-        SignalPathQuality.Enhanced             => "#3B82F6", // Royal Blue
-        SignalPathQuality.ResampledOrDegraded  => "#F97316", // Warning Orange
-        _                                      => "#9CA3AF"  // Neutral Gray
-    };
 }

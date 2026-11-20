@@ -1,7 +1,7 @@
 # Dokumentasi Lengkap Metode Analisis Keaslian Audio AuraAudio
 ## *Forensic Digital Signal Processing (DSP) & Raw Bitstream Audit Engine*
 
-Dokumen ini menjabarkan seluruh metodologi ilmiah, rumus matematika, dan alur kerja komputasi yang diimplementasikan pada mesin pendeteksi keaslian audio **AuraAudio** ([`NyquistSpectrumAnalyzer.cs`](file:///E:/REVERSE%20E%20ANYTHING/AuraAudio/Audio/Authenticity/NyquistSpectrumAnalyzer.cs)), arsitektur model ([`AudioIntegrityReport.cs`](file:///E:/REVERSE%20E%20ANYTHING/AuraAudio/Core/Models/AudioIntegrityReport.cs)), serta visualisasi telemetri ([`AuthenticityInspectorView.xaml`](file:///E:/REVERSE%20E%20ANYTHING/AuraAudio/UI/Views/AuthenticityInspectorView.xaml)).
+Dokumen ini menjabarkan seluruh metodologi ilmiah, rumus matematika, dan alur kerja komputasi yang diimplementasikan pada mesin pendeteksi keaslian audio **AuraAudio** ([`NyquistSpectrumAnalyzer.cs`](../Audio/Authenticity/NyquistSpectrumAnalyzer.cs)), arsitektur model ([`AudioIntegrityReport.cs`](../Core/Models/AudioIntegrityReport.cs)), serta visualisasi telemetri ([`InspectorView.xaml`](../UI/Views/InspectorView.xaml)).
 
 ---
 
@@ -337,8 +337,8 @@ Hasil pengukuran telemetri dan evaluasi akurasi 18 berkas kontrol adalah sebagai
 ---
 
 ## 5. Ringkasan Kode Implementasi
-* Engine Analisis DSP & Bitstream: [`NyquistSpectrumAnalyzer.cs`](file:///E:/REVERSE%20E%20ANYTHING/AuraAudio/Audio/Authenticity/NyquistSpectrumAnalyzer.cs)
-* Definisi Model Data & Vonis: [`AudioIntegrityReport.cs`](file:///E:/REVERSE%20E%20ANYTHING/AuraAudio/Core/Models/AudioIntegrityReport.cs)
-* Antarmuka Visual & Telemetri Forensik: [`AuthenticityInspectorView.xaml`](file:///E:/REVERSE%20E%20ANYTHING/AuraAudio/UI/Views/AuthenticityInspectorView.xaml)
-* Visualisasi Canvas Kurva Spek: [`SpekSpectrumControl.cs`](file:///E:/REVERSE%20E%20ANYTHING/AuraAudio/UI/Views/SpekSpectrumControl.cs)
+* Engine Analisis DSP & Bitstream: [`NyquistSpectrumAnalyzer.cs`](../Audio/Authenticity/NyquistSpectrumAnalyzer.cs)
+* Definisi Model Data & Vonis: [`AudioIntegrityReport.cs`](../Core/Models/AudioIntegrityReport.cs)
+* Antarmuka Visual & Telemetri Forensik: [`InspectorView.xaml`](../UI/Views/InspectorView.xaml)
+* Visualisasi Canvas Kurva Spek: [`SpekSpectrumControl.cs`](../UI/Controls/SpekSpectrumControl.cs)
 

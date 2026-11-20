@@ -25,7 +25,8 @@ public class DatabaseManager : IDisposable
         {
             DataSource = DatabasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared
+            Cache = SqliteCacheMode.Shared,
+            ForeignKeys = true
         }.ToString();
     }
 
@@ -61,6 +62,11 @@ public class DatabaseManager : IDisposable
 
         // 4. Migrasi / Isi Relasi Multi-Artis jika belum ada
         EnsureTrackArtistsPopulated(connection);
+
+        // 5. Bersihkan baris play_history yatim (defensive orphan prune jika DB lama diubah di luar FK)
+        using var pruneCmd = connection.CreateCommand();
+        pruneCmd.CommandText = "DELETE FROM play_history WHERE track_id NOT IN (SELECT id FROM tracks);";
+        pruneCmd.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -281,15 +287,29 @@ public class DatabaseManager : IDisposable
     }
 
     /// <summary>
-    /// Mengambil daftar lagu yang sudah terurut secara instan menggunakan Compound B-Tree Index.
+    /// Mengambil daftar lagu yang sudah terurut secara instan menggunakan Compound B-Tree Index,
+    /// dilengkapi filter pencarian langsung di level SQLite jika kata kunci diberikan.
     /// </summary>
-    public IReadOnlyList<Track> GetSortedTracks(TrackSortOption sortOption, int limit = 50, int offset = 0)
+    public IReadOnlyList<Track> GetSortedTracks(TrackSortOption sortOption, int limit = 50, int offset = 0, string? filter = null)
     {
         using var connection = CreateConnection();
         using var command = connection.CreateCommand();
 
         string orderByClause = GetOrderByClause(sortOption);
-        command.CommandText = $"SELECT * FROM tracks ORDER BY {orderByClause} LIMIT @limit OFFSET @offset;";
+        if (string.IsNullOrWhiteSpace(filter))
+        {
+            command.CommandText = $"SELECT * FROM tracks ORDER BY {orderByClause} LIMIT @limit OFFSET @offset;";
+        }
+        else
+        {
+            command.CommandText = $"""
+                SELECT * FROM tracks
+                WHERE title LIKE @filter OR artist LIKE @filter OR album LIKE @filter OR album_artist LIKE @filter
+                ORDER BY {orderByClause}
+                LIMIT @limit OFFSET @offset;
+            """;
+            command.Parameters.AddWithValue("@filter", $"%{filter.Trim()}%");
+        }
         command.Parameters.AddWithValue("@limit", limit);
         command.Parameters.AddWithValue("@offset", offset);
 
@@ -301,6 +321,51 @@ public class DatabaseManager : IDisposable
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// Mengambil satu entitas Album teragregasi berdasarkan judul album (dan opsional artis)
+    /// untuk navigasi cross-link instan dari baris lagu atau kapsul Now Playing.
+    /// </summary>
+    public Album? GetAlbumByTitle(string albumTitle, string? artistHint = null)
+    {
+        if (string.IsNullOrWhiteSpace(albumTitle)) return null;
+
+        using var connection = CreateConnection();
+        using var command = connection.CreateCommand();
+
+        command.CommandText = """
+            SELECT 
+                MIN(id) AS id,
+                album,
+                album_artist,
+                MAX(year) AS year,
+                COUNT(*) AS track_count,
+                SUM(duration_ms) AS total_duration_ms,
+                MAX(CASE WHEN sample_rate_hz > 44100 OR bit_depth > 16 THEN 1 ELSE 0 END) AS is_hires,
+                MAX(cover_art_cache_key) AS cover_art_cache_key
+            FROM tracks
+            WHERE album = @album COLLATE NOCASE
+            GROUP BY album, album_artist
+            ORDER BY CASE WHEN album_artist = @artist COLLATE NOCASE THEN 0 ELSE 1 END, track_count DESC
+            LIMIT 1;
+        """;
+        command.Parameters.AddWithValue("@album", albumTitle.Trim());
+        command.Parameters.AddWithValue("@artist", artistHint?.Trim() ?? string.Empty);
+
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) return null;
+
+        long id = reader.GetInt64(0);
+        string albumName = reader.GetString(1);
+        string artistName = reader.GetString(2);
+        int? year = reader.IsDBNull(3) ? null : reader.GetInt32(3);
+        int trackCount = reader.GetInt32(4);
+        long durMs = reader.IsDBNull(5) ? 0 : reader.GetInt64(5);
+        bool isHiRes = reader.GetInt32(6) == 1;
+        string? coverKey = reader.IsDBNull(7) ? null : reader.GetString(7);
+
+        return new Album(id, albumName, artistName, year, trackCount, TimeSpan.FromMilliseconds(durMs), isHiRes, coverKey);
     }
 
     /// <summary>
@@ -712,6 +777,21 @@ public class DatabaseManager : IDisposable
 
         TrackSortOption.HiResFirst =>
             "sample_rate_hz DESC, bit_depth DESC",
+
+        TrackSortOption.AlbumAscending =>
+            "album COLLATE NOCASE ASC, disc_number ASC, track_number ASC, title COLLATE NOCASE ASC",
+
+        TrackSortOption.AlbumDescending =>
+            "album COLLATE NOCASE DESC, disc_number ASC, track_number ASC, title COLLATE NOCASE ASC",
+
+        TrackSortOption.FormatAscending =>
+            "sample_rate_hz ASC, bit_depth ASC",
+
+        TrackSortOption.DurationAscending =>
+            "duration_ms ASC",
+
+        TrackSortOption.DurationDescending =>
+            "duration_ms DESC",
 
         _ => "id ASC"
     };
@@ -1186,6 +1266,8 @@ public class DatabaseManager : IDisposable
         command.Transaction = transaction;
 
         command.CommandText = """
+            DELETE FROM play_history;
+            DELETE FROM track_artists;
             DELETE FROM playlist_tracks;
             DELETE FROM playlists;
             DELETE FROM tracks;
@@ -1242,6 +1324,178 @@ public class DatabaseManager : IDisposable
     public void SetAutoScanOnStartup(bool enabled)
     {
         SetSetting("auto_scan_on_startup", enabled ? "1" : "0");
+    }
+
+    /// <summary>
+    /// Records a playback event into play_history, deduplicating rapid repeats (<= 30s)
+    /// and pruning entries beyond the newest 500 records.
+    /// </summary>
+    public void RecordPlayHistory(long trackId)
+    {
+        if (trackId <= 0) return;
+
+        using var connection = CreateConnection();
+        long nowTicks = DateTime.UtcNow.Ticks;
+
+        using (var checkCmd = connection.CreateCommand())
+        {
+            checkCmd.CommandText = "SELECT track_id, played_at_ticks FROM play_history ORDER BY played_at_ticks DESC LIMIT 1;";
+            using var reader = checkCmd.ExecuteReader();
+            if (reader.Read())
+            {
+                long lastTrackId = reader.GetInt64(0);
+                long lastTicks = reader.GetInt64(1);
+                if (lastTrackId == trackId && TimeSpan.FromTicks(nowTicks - lastTicks).TotalSeconds < 30.0)
+                {
+                    return;
+                }
+            }
+        }
+
+        using var tx = connection.BeginTransaction();
+        using (var insertCmd = connection.CreateCommand())
+        {
+            insertCmd.Transaction = tx;
+            insertCmd.CommandText = "INSERT INTO play_history (track_id, played_at_ticks) VALUES (@trackId, @ticks);";
+            insertCmd.Parameters.AddWithValue("@trackId", trackId);
+            insertCmd.Parameters.AddWithValue("@ticks", nowTicks);
+            insertCmd.ExecuteNonQuery();
+        }
+
+        using (var pruneCmd = connection.CreateCommand())
+        {
+            pruneCmd.Transaction = tx;
+            pruneCmd.CommandText = """
+                DELETE FROM play_history
+                WHERE id NOT IN (
+                    SELECT id FROM play_history ORDER BY played_at_ticks DESC LIMIT 500
+                );
+            """;
+            pruneCmd.ExecuteNonQuery();
+        }
+
+        tx.Commit();
+    }
+
+    /// <summary>
+    /// Returns the most recently played tracks in reverse chronological order.
+    /// </summary>
+    public IReadOnlyList<Track> GetRecentPlayHistory(int limit = 50)
+    {
+        var results = new List<Track>();
+        using var connection = CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT t.*
+            FROM play_history h
+            INNER JOIN tracks t ON t.id = h.track_id
+            ORDER BY h.played_at_ticks DESC
+            LIMIT @limit;
+        """;
+        command.Parameters.AddWithValue("@limit", Math.Max(1, limit));
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(MapTrackFromReader(reader));
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Returns recently added albums grouped by (album, album_artist) using tracks.date_added_ticks DESC.
+    /// </summary>
+    public IReadOnlyList<Album> GetRecentlyAddedAlbums(int limit = 12)
+    {
+        var results = new List<Album>();
+        using var connection = CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                MIN(id) AS id,
+                album,
+                album_artist,
+                MAX(year) AS year,
+                COUNT(*) AS track_count,
+                SUM(duration_ms) AS total_duration_ms,
+                MAX(CASE WHEN sample_rate_hz > 48000 OR bit_depth >= 24 OR codec LIKE 'DSD%' THEN 1 ELSE 0 END) AS is_hi_res,
+                MAX(cover_art_cache_key) AS cover_key
+            FROM tracks
+            GROUP BY album COLLATE NOCASE, album_artist COLLATE NOCASE
+            ORDER BY MAX(date_added_ticks) DESC
+            LIMIT @limit;
+        """;
+        command.Parameters.AddWithValue("@limit", Math.Max(1, limit));
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(new Album(
+                id: reader.GetInt64(0),
+                title: reader.GetString(1),
+                artist: reader.GetString(2),
+                year: reader.IsDBNull(3) ? null : reader.GetInt32(3),
+                trackCount: reader.GetInt32(4),
+                totalDuration: TimeSpan.FromMilliseconds(reader.GetInt64(5)),
+                isHiRes: reader.GetInt32(6) == 1,
+                coverArtCacheKey: reader.IsDBNull(7) ? null : reader.GetString(7)
+            ));
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Returns albums containing Hi-Res lossless or DSD tracks ordered by highest sample rate / bit depth.
+    /// </summary>
+    public IReadOnlyList<Album> GetHiResAlbums(int limit = 12)
+    {
+        var results = new List<Album>();
+        using var connection = CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                MIN(id) AS id,
+                album,
+                album_artist,
+                MAX(year) AS year,
+                COUNT(*) AS track_count,
+                SUM(duration_ms) AS total_duration_ms,
+                1 AS is_hi_res,
+                MAX(cover_art_cache_key) AS cover_key
+            FROM tracks
+            GROUP BY album COLLATE NOCASE, album_artist COLLATE NOCASE
+            HAVING MAX(CASE WHEN sample_rate_hz > 48000 OR bit_depth >= 24 OR codec LIKE 'DSD%' THEN 1 ELSE 0 END) = 1
+            ORDER BY MAX(sample_rate_hz) DESC, MAX(bit_depth) DESC, album COLLATE NOCASE ASC
+            LIMIT @limit;
+        """;
+        command.Parameters.AddWithValue("@limit", Math.Max(1, limit));
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(new Album(
+                id: reader.GetInt64(0),
+                title: reader.GetString(1),
+                artist: reader.GetString(2),
+                year: reader.IsDBNull(3) ? null : reader.GetInt32(3),
+                trackCount: reader.GetInt32(4),
+                totalDuration: TimeSpan.FromMilliseconds(reader.GetInt64(5)),
+                isHiRes: true,
+                coverArtCacheKey: reader.IsDBNull(7) ? null : reader.GetString(7)
+            ));
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Clears all recorded play events from the play_history table.
+    /// </summary>
+    public void ClearPlayHistory()
+    {
+        using var connection = CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM play_history;";
+        command.ExecuteNonQuery();
     }
 
     public void Dispose()

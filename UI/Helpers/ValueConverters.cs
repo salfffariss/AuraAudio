@@ -2,12 +2,11 @@ using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
-using System.Windows.Media;
 
 namespace AuraAudio.UI.Helpers;
 
 /// <summary>
-/// Mengubah TimeSpan menjadi string durasi waktu musik yang rapi (mm:ss atau hh:mm:ss).
+/// Converts a TimeSpan into compact playback duration format (m:ss or h:mm:ss).
 /// </summary>
 public class TimeSpanToStringConverter : IValueConverter
 {
@@ -26,36 +25,7 @@ public class TimeSpanToStringConverter : IValueConverter
 }
 
 /// <summary>
-/// Mengubah kode warna Hex (#RRGGBB) menjadi WPF SolidColorBrush secara aman.
-/// </summary>
-public class HexToBrushConverter : IValueConverter
-{
-    private static readonly Brush FallbackBrush = new SolidColorBrush(Color.FromRgb(148, 163, 184)); // Slate-400
-
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is string hex && !string.IsNullOrWhiteSpace(hex))
-        {
-            try
-            {
-                var color = (Color)ColorConverter.ConvertFromString(hex);
-                var brush = new SolidColorBrush(color);
-                brush.Freeze();
-                return brush;
-            }
-            catch
-            {
-                return FallbackBrush;
-            }
-        }
-        return FallbackBrush;
-    }
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => null!;
-}
-
-/// <summary>
-/// Mengubah boolean menjadi Visibility (Visible / Collapsed), mendukung inverter melalui parameter 'Inverse'.
+/// Converts boolean to Visibility, supporting ConverterParameter='Inverse'.
 /// </summary>
 public class BooleanToVisibilityConverter : IValueConverter
 {
@@ -77,7 +47,7 @@ public class BooleanToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
-/// Mengubah null check menjadi Visibility (Visible jika tidak null, Collapsed jika null).
+/// Converts null/empty check to Visibility, supporting ConverterParameter='Inverse'.
 /// </summary>
 public class NullToVisibilityConverter : IValueConverter
 {
@@ -98,8 +68,8 @@ public class NullToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
-/// Mengubah perbandingan string menjadi Visibility (Visible jika cocok dengan parameter, Collapsed jika tidak).
-/// Sangat bermanfaat untuk navigasi tab dan view switcher.
+/// Converts case-insensitive string equality against ConverterParameter into Visibility.
+/// Supports pipe-delimited alternatives (e.g., "Songs|Library").
 /// </summary>
 public class StringMatchToVisibilityConverter : IValueConverter
 {
@@ -107,7 +77,13 @@ public class StringMatchToVisibilityConverter : IValueConverter
     {
         if (value is string actual && parameter is string expected)
         {
-            return actual.Equals(expected, StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
+            foreach (string part in expected.Split('|', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (actual.Equals(part.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return Visibility.Visible;
+                }
+            }
         }
         return Visibility.Collapsed;
     }
@@ -116,7 +92,50 @@ public class StringMatchToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
-/// Mengubah boolean menjadi string teks berdasarkan parameter pemisah pipa "TrueText|FalseText".
+/// Converts case-insensitive string equality against ConverterParameter into bool
+/// for pure-XAML DataTriggers / RadioButton selection without hardcoded view brushes.
+/// </summary>
+public class StringMatchToBoolConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is string actual && parameter is string expected)
+        {
+            foreach (string part in expected.Split('|', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (actual.Equals(part.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is true && parameter is string expected)
+        {
+            return expected.Split('|')[0].Trim();
+        }
+        return Binding.DoNothing;
+    }
+}
+
+/// <summary>
+/// Inverts a boolean value.
+/// </summary>
+public class InvertBoolConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is bool b && !b;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is bool b && !b;
+}
+
+/// <summary>
+/// Converts boolean to "TrueText|FalseText" string.
 /// </summary>
 public class BooleanToStringConverter : IValueConverter
 {
@@ -135,49 +154,7 @@ public class BooleanToStringConverter : IValueConverter
 }
 
 /// <summary>
-/// Mengubah perbandingan string menjadi Brush (misal untuk highlight navigasi aktif).
-/// Parameter format: "ExpectedView:ActiveHex|InactiveHex", contoh "Library:#20202C|#00000000".
-/// </summary>
-public class StringMatchToBrushConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is string actual && parameter is string paramStr)
-        {
-            var parts = paramStr.Split(':');
-            if (parts.Length == 2)
-            {
-                string expected = parts[0];
-                string colors = parts[1];
-                var colorParts = colors.Split('|');
-                string activeHex = colorParts[0];
-                string inactiveHex = colorParts.Length > 1 ? colorParts[1] : "#00000000";
-
-                bool isMatch = actual.Equals(expected, StringComparison.OrdinalIgnoreCase);
-                string chosenHex = isMatch ? activeHex : inactiveHex;
-
-                try
-                {
-                    var color = (Color)ColorConverter.ConvertFromString(chosenHex);
-                    var brush = new SolidColorBrush(color);
-                    brush.Freeze();
-                    return brush;
-                }
-                catch
-                {
-                    return Brushes.Transparent;
-                }
-            }
-        }
-        return Brushes.Transparent;
-    }
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => null!;
-}
-
-/// <summary>
-/// Mengubah angka (int, double, long) menjadi Visibility (Visible jika > 0, Collapsed jika <= 0).
-/// Mendukung parameter "Inverse".
+/// Converts numeric count (> 0) to Visibility, supporting ConverterParameter='Inverse'.
 /// </summary>
 public class NumberToVisibilityConverter : IValueConverter
 {
@@ -200,7 +177,7 @@ public class NumberToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
-/// Mengubah indeks 0-based (misalnya AlternationIndex) menjadi nomor urut 1-based (1, 2, 3...).
+/// Converts 0-based index (e.g., AlternationIndex) to 1-based display string.
 /// </summary>
 public class OneBasedIndexConverter : IValueConverter
 {
@@ -217,7 +194,7 @@ public class OneBasedIndexConverter : IValueConverter
 }
 
 /// <summary>
-/// Membandingkan dua string (misal FilePath baris trek vs CurrentTrack.FilePath) untuk menandai trek aktif.
+/// Compares two strings (e.g., row FilePath vs CurrentTrack.FilePath) for active track state.
 /// </summary>
 public class StringEqualsMultiConverter : IMultiValueConverter
 {
@@ -244,5 +221,59 @@ public class StringEqualsMultiConverter : IMultiValueConverter
         Array.Empty<object>();
 }
 
+/// <summary>
+/// Controls sort chevron visibility based on [ActiveSortColumn, IsSortAscending] and "ColumnName:Asc|Desc".
+/// </summary>
+public class SortIndicatorVisibilityConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (values == null || values.Length < 2 || parameter is not string paramStr)
+            return Visibility.Collapsed;
 
+        string activeColumn = values[0] as string ?? string.Empty;
+        bool isAsc = values[1] is bool b && b;
 
+        var parts = paramStr.Split(':');
+        if (parts.Length != 2) return Visibility.Collapsed;
+
+        string expectedColumn = parts[0];
+        bool expectedAsc = parts[1].Equals("Asc", StringComparison.OrdinalIgnoreCase);
+
+        bool match = activeColumn.Equals(expectedColumn, StringComparison.OrdinalIgnoreCase) && isAsc == expectedAsc;
+        return match ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) =>
+        Array.Empty<object>();
+}
+
+/// <summary>
+/// Evaluates whether a track row is both active and actively playing ([TrackFilePath, CurrentTrackFilePath, IsPlaying]).
+/// </summary>
+public class ActiveTrackPlayingMultiConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        bool activeAndPlaying = values != null &&
+                                values.Length >= 3 &&
+                                values[0] is string a &&
+                                values[1] is string b &&
+                                values[2] is bool isPlaying &&
+                                isPlaying &&
+                                !string.IsNullOrEmpty(a) &&
+                                string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        bool inverse = parameter is string p && p.Equals("Inverse", StringComparison.OrdinalIgnoreCase);
+        if (inverse) activeAndPlaying = !activeAndPlaying;
+
+        if (targetType == typeof(Visibility))
+        {
+            return activeAndPlaying ? Visibility.Visible : Visibility.Collapsed;
+        }
+        return activeAndPlaying;
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) =>
+        Array.Empty<object>();
+}

@@ -1,0 +1,146 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- =======================================================================
+         AURAAUDIO v2.0.0 — SINGLE SOURCE OF COLOR TRUTH (PURE MONOCHROME)
+         STRICT INVARIANT: Every opaque color has R = G = B. Zero hue anywhere.
+         NO OTHER XAML FILE IN THE PROJECT MAY CONTAIN HEX COLOR LITERALS.
+         ======================================================================= -->
+
+    <!-- 12-Step True-Neutral Gray Ramp (R = G = B, WCAG 2.1 Verified) -->
+    <Color x:Key="Color.Neutral.00">#000000</Color>
+    <Color x:Key="Color.Neutral.05">#0B0B0B</Color>
+    <Color x:Key="Color.Neutral.10">#121212</Color>
+    <Color x:Key="Color.Neutral.15">#1B1B1B</Color>
+    <Color x:Key="Color.Neutral.20">#262626</Color>
+    <Color x:Key="Color.Neutral.25">#323232</Color>
+    <Color x:Key="Color.Neutral.40">#6E6E6E</Color>
+    <Color x:Key="Color.Neutral.50">#858585</Color>
+    <Color x:Key="Color.Neutral.65">#A0A0A0</Color>
+    <Color x:Key="Color.Neutral.80">#C7C7C7</Color>
+    <Color x:Key="Color.Neutral.92">#EBEBEB</Color>
+    <Color x:Key="Color.Neutral.100">#FFFFFF</Color>
+
+    <!-- SystemColors ColorKey Overrides (must be raw Color structs in the single token file) -->
+    <Color x:Key="{x:Static SystemColors.HighlightColorKey}">#323232</Color>
+    <Color x:Key="{x:Static SystemColors.HighlightTextColorKey}">#FFFFFF</Color>
+    <Color x:Key="{x:Static SystemColors.ControlColorKey}">#1B1B1B</Color>
+    <Color x:Key="{x:Static SystemColors.ControlTextColorKey}">#EBEBEB</Color>
+    <Color x:Key="{x:Static SystemColors.WindowColorKey}">#121212</Color>
+    <Color x:Key="{x:Static SystemColors.WindowTextColorKey}">#EBEBEB</Color>
+    <Color x:Key="{x:Static SystemColors.GrayTextColorKey}">#6E6E6E</Color>
+    <Color x:Key="{x:Static SystemColors.HotTrackColorKey}">#FFFFFF</Color>
+    <Color x:Key="{x:Static SystemColors.MenuHighlightColorKey}">#323232</Color>
+
+    <!-- Pure-Neutral Alpha & Plot Colors (R = G = B) -->
+    <Color x:Key="Color.Overlay.Scrim">#C0000000</Color>
+    <Color x:Key="Color.Overlay.EdgeScrim">#40000000</Color>
+    <Color x:Key="Color.Overlay.ArtworkScrimTop">#00000000</Color>
+    <Color x:Key="Color.Overlay.ArtworkScrimBottom">#A6000000</Color>
+    <Color x:Key="Color.Overlay.ZebraRow">#08FFFFFF</Color>
+    <Color x:Key="Color.Overlay.TranslucentChrome">#EB0B0B0B</Color>
+    <Color x:Key="Color.Spectrum.GridLine">#1F1F1F</Color>
+    <Color x:Key="Color.Spectrum.FillTop">#52FFFFFF</Color>
+    <Color x:Key="Color.Spectrum.FillBottom">#08FFFFFF</Color>
+
+    <!-- Raw Step Brushes -->
+    <SolidColorBrush x:Key="Brush.Neutral.00" Color="{StaticResource Color.Neutral.00}" />
+    <SolidColorBrush x:Key="Brush.Neutral.05" Color="{StaticResource Color.Neutral.05}" />
+    <SolidColorBrush x:Key="Brush.Neutral.10" Color="{StaticResource Color.Neutral.10}" />
+    <SolidColorBrush x:Key="Brush.Neutral.15" Color="{StaticResource Color.Neutral.15}" />
+    <SolidColorBrush x:Key="Brush.Neutral.20" Color="{StaticResource Color.Neutral.20}" />
+    <SolidColorBrush x:Key="Brush.Neutral.25" Color="{StaticResource Color.Neutral.25}" />
+    <SolidColorBrush x:Key="Brush.Neutral.40" Color="{StaticResource Color.Neutral.40}" />
+    <SolidColorBrush x:Key="Brush.Neutral.50" Color="{StaticResource Color.Neutral.50}" />
+    <SolidColorBrush x:Key="Brush.Neutral.65" Color="{StaticResource Color.Neutral.65}" />
+    <SolidColorBrush x:Key="Brush.Neutral.80" Color="{StaticResource Color.Neutral.80}" />
+    <SolidColorBrush x:Key="Brush.Neutral.92" Color="{StaticResource Color.Neutral.92}" />
+    <SolidColorBrush x:Key="Brush.Neutral.100" Color="{StaticResource Color.Neutral.100}" />
+
+    <!-- Semantic Surfaces & Structural Chrome -->
+    <SolidColorBrush x:Key="Brush.Canvas" Color="{StaticResource Color.Neutral.10}" />
+    <SolidColorBrush x:Key="Brush.Rail" Color="{StaticResource Color.Neutral.05}" />
+    <SolidColorBrush x:Key="Brush.TopBar" Color="{StaticResource Color.Neutral.05}" />
+    <SolidColorBrush x:Key="Brush.Surface" Color="{StaticResource Color.Neutral.15}" />
+    <SolidColorBrush x:Key="Brush.Elevated" Color="{StaticResource Color.Neutral.20}" />
+    <SolidColorBrush x:Key="Brush.SelectedRow" Color="{StaticResource Color.Neutral.25}" />
+    <SolidColorBrush x:Key="Brush.DockBackground" Color="{StaticResource Color.Overlay.TranslucentChrome}" />
+    <SolidColorBrush x:Key="Brush.SpectrumCanvas" Color="{StaticResource Color.Neutral.05}" />
+
+    <!-- Semantic Borders & Separators -->
+    <SolidColorBrush x:Key="Brush.Border.Hairline" Color="{StaticResource Color.Neutral.25}" />
+    <SolidColorBrush x:Key="Brush.Border.Control" Color="{StaticResource Color.Neutral.40}" />
+    <SolidColorBrush x:Key="Brush.Border.ControlElevated" Color="{StaticResource Color.Neutral.50}" />
+    <SolidColorBrush x:Key="Brush.Border.ControlHover" Color="{StaticResource Color.Neutral.65}" />
+    <SolidColorBrush x:Key="Brush.Border.Strong" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="Brush.Border.Warning" Color="{StaticResource Color.Neutral.80}" />
+
+    <!-- Semantic Typography Colors -->
+    <SolidColorBrush x:Key="Brush.Text.Primary" Color="{StaticResource Color.Neutral.92}" />
+    <SolidColorBrush x:Key="Brush.Text.Peak" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="Brush.Text.Secondary" Color="{StaticResource Color.Neutral.80}" />
+    <SolidColorBrush x:Key="Brush.Text.Tertiary" Color="{StaticResource Color.Neutral.65}" />
+    <SolidColorBrush x:Key="Brush.Text.Disabled" Color="{StaticResource Color.Neutral.40}" />
+    <SolidColorBrush x:Key="Brush.Text.DisabledElevated" Color="{StaticResource Color.Neutral.50}" />
+    <SolidColorBrush x:Key="Brush.Text.OnWhite" Color="{StaticResource Color.Neutral.00}" />
+
+    <!-- Lyrics Luminance Tiers (Current 17.22:1, Next 6.59:1, Past 4.67:1 on N15) -->
+    <SolidColorBrush x:Key="Brush.Lyrics.Current" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="Brush.Lyrics.Next" Color="{StaticResource Color.Neutral.65}" />
+    <SolidColorBrush x:Key="Brush.Lyrics.Past" Color="{StaticResource Color.Neutral.50}" />
+
+    <!-- Semantic Icons -->
+    <SolidColorBrush x:Key="Brush.Icon.Default" Color="{StaticResource Color.Neutral.80}" />
+    <SolidColorBrush x:Key="Brush.Icon.Muted" Color="{StaticResource Color.Neutral.65}" />
+    <SolidColorBrush x:Key="Brush.Icon.Active" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="Brush.Icon.OnWhite" Color="{StaticResource Color.Neutral.00}" />
+
+    <!-- Semantic Interactive States -->
+    <SolidColorBrush x:Key="Brush.Hover.Dark" Color="{StaticResource Color.Neutral.20}" />
+    <SolidColorBrush x:Key="Brush.Hover.Elevated" Color="{StaticResource Color.Neutral.25}" />
+    <SolidColorBrush x:Key="Brush.Pressed.Dark" Color="{StaticResource Color.Neutral.25}" />
+    <SolidColorBrush x:Key="Brush.Selected.PillFill" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="Brush.Selected.PillInk" Color="{StaticResource Color.Neutral.00}" />
+    <SolidColorBrush x:Key="Brush.Focus.Outer" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="Brush.Focus.Inner" Color="{StaticResource Color.Neutral.00}" />
+
+    <!-- Semantic Buttons & Window Controls -->
+    <SolidColorBrush x:Key="Brush.Button.PrimaryFill" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="Brush.Button.PrimaryHover" Color="{StaticResource Color.Neutral.92}" />
+    <SolidColorBrush x:Key="Brush.Button.PrimaryPressed" Color="{StaticResource Color.Neutral.80}" />
+    <SolidColorBrush x:Key="Brush.Button.PrimaryDisabledFill" Color="{StaticResource Color.Neutral.25}" />
+    <SolidColorBrush x:Key="Brush.Button.PrimaryDisabledInk" Color="{StaticResource Color.Neutral.50}" />
+    <SolidColorBrush x:Key="Brush.Button.SecondaryFill" Color="{StaticResource Color.Neutral.20}" />
+    <SolidColorBrush x:Key="Brush.Button.SecondaryHover" Color="{StaticResource Color.Neutral.25}" />
+    <SolidColorBrush x:Key="Brush.Button.SecondaryPressed" Color="{StaticResource Color.Neutral.15}" />
+    <SolidColorBrush x:Key="Brush.Close.HoverFill" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="Brush.Close.PressedFill" Color="{StaticResource Color.Neutral.80}" />
+    <SolidColorBrush x:Key="Brush.Close.HoverInk" Color="{StaticResource Color.Neutral.00}" />
+
+    <!-- Scrubber & Scrollbar -->
+    <SolidColorBrush x:Key="Brush.Scrubber.Track" Color="{StaticResource Color.Neutral.40}" />
+    <SolidColorBrush x:Key="Brush.Scrubber.TrackHover" Color="{StaticResource Color.Neutral.50}" />
+    <SolidColorBrush x:Key="Brush.Scrubber.Fill" Color="{StaticResource Color.Neutral.92}" />
+    <SolidColorBrush x:Key="Brush.Scrubber.Thumb" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="Brush.Scrubber.ThumbStroke" Color="{StaticResource Color.Neutral.00}" />
+    <SolidColorBrush x:Key="Brush.Scrollbar.Thumb" Color="{StaticResource Color.Neutral.40}" />
+    <SolidColorBrush x:Key="Brush.Scrollbar.ThumbHover" Color="{StaticResource Color.Neutral.50}" />
+    <SolidColorBrush x:Key="Brush.Scrollbar.ThumbDrag" Color="{StaticResource Color.Neutral.80}" />
+
+    <!-- Overlays & Neutral Gradients -->
+    <SolidColorBrush x:Key="Brush.Overlay.Scrim" Color="{StaticResource Color.Overlay.Scrim}" />
+    <SolidColorBrush x:Key="Brush.Overlay.EdgeScrim" Color="{StaticResource Color.Overlay.EdgeScrim}" />
+    <SolidColorBrush x:Key="Brush.Overlay.ZebraRow" Color="{StaticResource Color.Overlay.ZebraRow}" />
+    <SolidColorBrush x:Key="Brush.Spectrum.GridLine" Color="{StaticResource Color.Spectrum.GridLine}" />
+
+    <LinearGradientBrush x:Key="Brush.Overlay.ArtworkScrim" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0.0" Color="{StaticResource Color.Overlay.ArtworkScrimTop}" />
+        <GradientStop Offset="1.0" Color="{StaticResource Color.Overlay.ArtworkScrimBottom}" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Brush.Spectrum.Fill" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0.0" Color="{StaticResource Color.Spectrum.FillTop}" />
+        <GradientStop Offset="1.0" Color="{StaticResource Color.Spectrum.FillBottom}" />
+    </LinearGradientBrush>
+
+</ResourceDictionary>

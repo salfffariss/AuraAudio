@@ -116,6 +116,8 @@ public class AudiophilePlaybackController : IDisposable
         set
         {
             _volume = Math.Clamp(value, 0f, 1f);
+            _isMuted = _volume <= 0.0001f;
+            _outputEngine.Volume = _volume;
             PublishSnapshot();
         }
     }
@@ -526,10 +528,12 @@ public class AudiophilePlaybackController : IDisposable
                 _currentTrack = track;
                 _currentDevice ??= _deviceEnumerator.GetDefaultRenderDevice();
 
-                // 3. Inisialisasi engine output hardware
+                // 3. Inisialisasi engine output hardware (sinkronkan volume sebelum & sesudah init)
                 if (_currentDevice != null)
                 {
+                    _outputEngine.Volume = _volume;
                     _outputEngine.Initialize(_currentDevice, _activeQueue, latencyMs: _latencyMs, driverType: _driverType);
+                    _outputEngine.Volume = _volume;
                 }
 
                 // 4. Pre-buffer lagu berikutnya ke dalam memori jika tersedia di antrean

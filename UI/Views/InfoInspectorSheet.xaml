@@ -1,0 +1,502 @@
+<UserControl x:Class="AuraAudio.UI.Views.InfoInspectorSheet"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:AuraAudio.UI.Controls"
+             xmlns:models="clr-namespace:AuraAudio.Core.Models"
+             x:Name="Root"
+             AutomationProperties.AutomationId="Aura.Info.Sheet">
+
+    <UserControl.Resources>
+        <!-- Clean Monochrome Pivot TabControl Template -->
+        <Style x:Key="Style.InfoPivotTabControl" TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Border Grid.Row="0"
+                                    BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="14,0">
+                                <TabPanel x:Name="HeaderPanel"
+                                          IsItemsHost="True"
+                                          Panel.ZIndex="1" />
+                            </Border>
+                            <ContentPresenter x:Name="PART_SelectedContentHost"
+                                              Grid.Row="1"
+                                              ContentSource="SelectedContent"
+                                              SnapsToDevicePixels="True" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Key/Value InfoRow Border -->
+        <Style x:Key="Style.InfoRowBorder" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{StaticResource Brush.Border.Hairline}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Padding" Value="0,9" />
+        </Style>
+
+        <!-- Verdict Pill inside Authenticity Tab -->
+        <Style x:Key="Style.SheetVerdictPill" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Brush.Elevated}" />
+            <Setter Property="BorderBrush" Value="{StaticResource Brush.Border.Control}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{StaticResource Radius.Control}" />
+            <Setter Property="Padding" Value="9,3" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding CurrentIntegrityReport.VerdictCategory}" Value="Genuine">
+                    <Setter Property="Background" Value="{StaticResource Brush.Selected.PillFill}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource Brush.Selected.PillFill}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding CurrentIntegrityReport.VerdictCategory}" Value="Caution">
+                    <Setter Property="BorderBrush" Value="{StaticResource Brush.Border.Warning}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding CurrentIntegrityReport.VerdictCategory}" Value="Fake">
+                    <Setter Property="Background" Value="{StaticResource Brush.Canvas}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource Brush.Border.Strong}" />
+                    <Setter Property="BorderThickness" Value="1.5" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="Style.SheetVerdictText" TargetType="TextBlock" BasedOn="{StaticResource Text.Subheadline}">
+            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Peak}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding CurrentIntegrityReport.VerdictCategory}" Value="Genuine">
+                    <Setter Property="Foreground" Value="{StaticResource Brush.Selected.PillInk}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <!-- Full-Window Modal Scrim -->
+    <Grid x:Name="SheetScrim"
+          Background="{StaticResource Brush.Overlay.Scrim}"
+          MouseLeftButtonDown="Scrim_MouseLeftButtonDown">
+
+        <!-- 640x560 Centered Monochrome Sheet -->
+        <Border x:Name="SheetCard"
+                Width="640"
+                Height="560"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                CornerRadius="{StaticResource Radius.Sheet}"
+                Background="{StaticResource Brush.Surface}"
+                BorderBrush="{StaticResource Brush.Border.Control}"
+                BorderThickness="1"
+                MouseLeftButtonDown="SheetCard_MouseLeftButtonDown">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- ===========================================================
+                     SHEET HEADER: 64x64 Artwork + Title/Artist/Album + Close
+                     =========================================================== -->
+                <Grid Grid.Row="0" Margin="20,18,16,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="64" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 64x64 Rounded Album Cover -->
+                    <Grid Grid.Column="0" Width="64" Height="64">
+                        <Border CornerRadius="{StaticResource Radius.Card}"
+                                Background="{StaticResource Brush.Elevated}"
+                                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                BorderThickness="1">
+                            <Path Width="22" Height="22" Stretch="Uniform"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Stroke="{StaticResource Brush.Icon.Muted}"
+                                  StrokeThickness="1.5"
+                                  Data="M6,14 A2,2 0 1 1 2,14 A2,2 0 1 1 6,14 M6,14 L6,3 L15,1.5 L15,12 M15,12 A2,2 0 1 1 11,12 A2,2 0 1 1 15,12" />
+                        </Border>
+                        <Border CornerRadius="{StaticResource Radius.Card}"
+                                RenderOptions.BitmapScalingMode="HighQuality"
+                                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                BorderThickness="1">
+                            <Border.Background>
+                                <ImageBrush Stretch="UniformToFill"
+                                            ImageSource="{Binding InfoTargetTrack.CoverArtCacheKey, Converter={StaticResource CoverArtConverter}, ConverterParameter=Mini}" />
+                            </Border.Background>
+                        </Border>
+                    </Grid>
+
+                    <!-- Track Heading Metadata -->
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="16,0,12,0">
+                        <TextBlock Text="{Binding InfoTargetDetails.Title}"
+                                   Style="{StaticResource Text.Title2}"
+                                   Foreground="{StaticResource Brush.Text.Peak}" />
+                        <TextBlock Text="{Binding InfoTargetDetails.Performers}"
+                                   Style="{StaticResource Text.Body}"
+                                   Foreground="{StaticResource Brush.Text.Secondary}"
+                                   Margin="0,2,0,0" />
+                        <TextBlock Text="{Binding InfoTargetDetails.Album}"
+                                   Style="{StaticResource Text.Callout}"
+                                   Foreground="{StaticResource Brush.Text.Tertiary}"
+                                   Margin="0,2,0,0" />
+                    </StackPanel>
+
+                    <!-- Close Sheet Button -->
+                    <Button Grid.Column="2"
+                            Style="{StaticResource Style.Button.Icon}"
+                            VerticalAlignment="Top"
+                            AutomationProperties.AutomationId="Aura.Info.Close"
+                            Command="{Binding Presentation.CloseInfoSheetCommand}"
+                            ToolTip="Close (Esc)">
+                        <Path Width="10" Height="10" Stretch="Uniform"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              StrokeThickness="1.5"
+                              Data="M1,1 L9,9 M9,1 L1,9" />
+                    </Button>
+                </Grid>
+
+                <!-- ===========================================================
+                     4-TAB MONOCHROME PIVOT (Details | Audio & Path | Auth | Lyrics)
+                     =========================================================== -->
+                <TabControl x:Name="InfoPivotTabs"
+                            Grid.Row="1"
+                            Style="{StaticResource Style.InfoPivotTabControl}">
+
+                    <!-- TAB 1: DETAILS (TagLib Credits & File Location) -->
+                    <TabItem Header="Details"
+                             AutomationProperties.AutomationId="Aura.Info.Tab.Details">
+                        <ScrollViewer Focusable="False"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Padding="22,12,22,20">
+                            <StackPanel>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Performer" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.Performers}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Album Artist" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.AlbumArtist}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Album" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.Album}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Composer" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.Composer}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Conductor" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.Conductor}" Style="{StaticResource Text.Body}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Genre" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.Genre}" Style="{StaticResource Text.Body}" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Year" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.YearText}" Style="{StaticResource Text.TabularMono}" FontSize="13" Foreground="{StaticResource Brush.Text.Primary}" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Track / Disc" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.TrackDiscText}" Style="{StaticResource Text.TabularMono}" FontSize="13" Foreground="{StaticResource Brush.Text.Primary}" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Copyright" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.Copyright}" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Primary}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="File Name" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.FileName}" Style="{StaticResource Text.TabularMono}" FontSize="12" Foreground="{StaticResource Brush.Text.Primary}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                                <Border Padding="0,9">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="128" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Folder" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.DirectoryPath}" Style="{StaticResource Text.TabularMono}" FontSize="12" Foreground="{StaticResource Brush.Text.Secondary}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button Style="{StaticResource Style.Button.Secondary}"
+                                            Height="32"
+                                            Command="{Binding OpenFileLocationCommand}"
+                                            CommandParameter="{Binding InfoTargetTrack}"
+                                            Content="Show in Explorer" />
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- TAB 2: AUDIO & PATH (Specs + 4-Node Monochrome Signal Chain) -->
+                    <TabItem Header="Audio &amp; Path"
+                             AutomationProperties.AutomationId="Aura.Info.Tab.Audio">
+                        <ScrollViewer Focusable="False"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Padding="22,12,22,20">
+                            <StackPanel>
+                                <TextBlock Text="FILE FORMAT SPECIFICATIONS"
+                                           Style="{StaticResource Text.Eyebrow}"
+                                           Margin="0,4,0,8" />
+
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="136" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Codec" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.CodecFullDescription}" Style="{StaticResource Text.Body}" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="136" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Resolution" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.SampleRateAndBitDepth}" Style="{StaticResource Text.TabularMono}" FontSize="13" Foreground="{StaticResource Brush.Text.Primary}" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="136" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Bitrate" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.BitrateText}" Style="{StaticResource Text.TabularMono}" FontSize="13" Foreground="{StaticResource Brush.Text.Primary}" />
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource Style.InfoRowBorder}" Margin="0,0,0,18">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="136" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="File Size" Style="{StaticResource Text.Callout}" Foreground="{StaticResource Brush.Text.Tertiary}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding InfoTargetDetails.FileSizeText}" Style="{StaticResource Text.TabularMono}" FontSize="13" Foreground="{StaticResource Brush.Text.Primary}" />
+                                    </Grid>
+                                </Border>
+
+                                <!-- 4-Node Monochrome Signal Chain -->
+                                <Grid Margin="0,0,0,6">
+                                    <TextBlock Text="ACTIVE BIT-PERFECT SIGNAL CHAIN"
+                                               Style="{StaticResource Text.Eyebrow}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding SignalPathBadge}"
+                                               Style="{StaticResource Text.TabularMono}"
+                                               Foreground="{StaticResource Brush.Text.Primary}"
+                                               FontWeight="SemiBold"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+
+                                <TextBlock Text="Showing live audio output pipeline for the currently playing track."
+                                           Style="{StaticResource Text.Footnote}"
+                                           Foreground="{StaticResource Brush.Text.Tertiary}"
+                                           Margin="0,0,0,8"
+                                           Visibility="{Binding IsInfoTargetCurrentTrack, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=Inverse}" />
+
+                                <Border Padding="14,12"
+                                        CornerRadius="{StaticResource Radius.Card}"
+                                        Background="{StaticResource Brush.Elevated}"
+                                        BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                        BorderThickness="1">
+                                    <Grid>
+                                        <ItemsControl ItemsSource="{Binding CurrentSignalPath.Steps}"
+                                                      Visibility="{Binding CurrentSignalPath, Converter={StaticResource NullToVisibilityConverter}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type models:SignalStep}">
+                                                    <Grid Margin="0,0,0,10">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="22" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid Grid.Column="0">
+                                                            <Border Width="1" Margin="0,12,0,-10" HorizontalAlignment="Center" Background="{StaticResource Brush.Border.Hairline}" />
+                                                            <Ellipse x:Name="StepDot"
+                                                                     Width="9" Height="9" Margin="0,4,0,0"
+                                                                     HorizontalAlignment="Center" VerticalAlignment="Top"
+                                                                     Fill="{StaticResource Brush.Icon.Active}"
+                                                                     Stroke="{StaticResource Brush.Icon.Active}"
+                                                                     StrokeThickness="1.5" />
+                                                        </Grid>
+                                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                                            <TextBlock Text="{Binding Name}" Style="{StaticResource Text.Subheadline}" Foreground="{StaticResource Brush.Text.Peak}" />
+                                                            <TextBlock Text="{Binding Description}" Style="{StaticResource Text.Callout}" TextWrapping="Wrap" Margin="0,1,0,0" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                    <DataTemplate.Triggers>
+                                                        <DataTrigger Binding="{Binding Quality}" Value="{x:Static models:SignalPathQuality.Enhanced}">
+                                                            <Setter TargetName="StepDot" Property="Fill" Value="{StaticResource Brush.Elevated}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Quality}" Value="{x:Static models:SignalPathQuality.ResampledOrDegraded}">
+                                                            <Setter TargetName="StepDot" Property="Fill" Value="{StaticResource Brush.Elevated}" />
+                                                            <Setter TargetName="StepDot" Property="Stroke" Value="{StaticResource Brush.Icon.Muted}" />
+                                                            <Setter TargetName="StepDot" Property="StrokeDashArray" Value="2 1" />
+                                                        </DataTrigger>
+                                                    </DataTemplate.Triggers>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <StackPanel Visibility="{Binding CurrentSignalPath, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Inverse}">
+                                            <TextBlock Text="{Binding OutputDeviceName}" Style="{StaticResource Text.Subheadline}" Foreground="{StaticResource Brush.Text.Peak}" />
+                                            <TextBlock Text="{Binding SidebarDriverTitle}" Style="{StaticResource Text.Callout}" Margin="0,2,0,4" />
+                                            <TextBlock Text="Start playback to audit each stage of the active WASAPI bit-perfect chain."
+                                                       Style="{StaticResource Text.Callout}"
+                                                       Foreground="{StaticResource Brush.Text.Tertiary}"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- TAB 3: AUTHENTICITY (Live FFT + Monochrome Spectrum) -->
+                    <TabItem Header="Authenticity"
+                             AutomationProperties.AutomationId="Aura.Info.Tab.Authenticity">
+                        <ScrollViewer Focusable="False"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Padding="22,14,22,20">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,12">
+                                    <Button Style="{StaticResource Style.Button.Primary}"
+                                            Height="32"
+                                            HorizontalAlignment="Left"
+                                            Content="Run FFT Authenticity Check"
+                                            Click="AnalyzeInfoTarget_Click" />
+                                    <Button Style="{StaticResource Style.Button.Ghost}"
+                                            Height="32"
+                                            HorizontalAlignment="Right"
+                                            Content="Open Full Inspector ›"
+                                            Click="OpenFullInspector_Click" />
+                                </Grid>
+
+                                <!-- Analyzing State -->
+                                <TextBlock Text="Analyzing Nyquist FFT spectrum..."
+                                           Style="{StaticResource Text.Callout}"
+                                           Foreground="{StaticResource Brush.Text.Peak}"
+                                           Margin="0,0,0,10"
+                                           Visibility="{Binding IsAnalyzing, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                                <!-- Error State -->
+                                <TextBlock Text="{Binding AnalysisErrorMessage}"
+                                           Style="{StaticResource Text.Callout}"
+                                           Foreground="{StaticResource Brush.Text.Peak}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,10"
+                                           Visibility="{Binding HasAnalysisError, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                                <!-- Compact Monochrome FFT Plot -->
+                                <controls:SpekSpectrumControl Report="{Binding CurrentIntegrityReport}"
+                                                              Height="185"
+                                                              Margin="0,0,0,12"
+                                                              AutomationProperties.AutomationId="Aura.Info.Spectrum" />
+
+                                <!-- Verdict Summary -->
+                                <StackPanel Visibility="{Binding HasActiveIntegrityReport, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <Border Style="{StaticResource Style.SheetVerdictPill}"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,0,0,8">
+                                        <TextBlock Text="{Binding CurrentIntegrityReport.VerdictBadge}"
+                                                   Style="{StaticResource Style.SheetVerdictText}" />
+                                    </Border>
+                                    <TextBlock Text="{Binding CurrentIntegrityReport.LocalizedExplanation}"
+                                               Style="{StaticResource Text.Callout}"
+                                               Foreground="{StaticResource Brush.Text.Secondary}"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- TAB 4: LYRICS (Source Badge + Import .lrc/.txt + Full Text + Writers) -->
+                    <TabItem Header="Lyrics"
+                             AutomationProperties.AutomationId="Aura.Info.Tab.Lyrics">
+                        <ScrollViewer Focusable="False"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Padding="22,14,22,20">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,14">
+                                    <Border HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            Padding="8,3"
+                                            CornerRadius="{StaticResource Radius.Badge}"
+                                            Background="{StaticResource Brush.Elevated}"
+                                            BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                            BorderThickness="1">
+                                        <TextBlock Text="{Binding InfoTargetLyricsSource}"
+                                                   Style="{StaticResource Text.Footnote}"
+                                                   Foreground="{StaticResource Brush.Text.Secondary}" />
+                                    </Border>
+
+                                    <Button HorizontalAlignment="Right"
+                                            Style="{StaticResource Style.Button.Secondary}"
+                                            Height="30"
+                                            Padding="12,0"
+                                            FontSize="12"
+                                            AutomationProperties.AutomationId="Aura.Info.Lyrics.Import"
+                                            Command="{Binding ImportLyricsFileCommand}"
+                                            CommandParameter="{Binding InfoTargetTrack}"
+                                            Content="Import .lrc / Lyrics..." />
+                                </Grid>
+
+                                <TextBlock Text="{Binding InfoTargetLyricsText}"
+                                           Style="{StaticResource Text.Body}"
+                                           LineHeight="24"
+                                           TextWrapping="Wrap"
+                                           Visibility="{Binding InfoTargetHasLyrics, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                                <TextBlock Text="No lyrics embedded or sidecar .lrc found for this track."
+                                           Style="{StaticResource Text.Callout}"
+                                           Foreground="{StaticResource Brush.Text.Tertiary}"
+                                           Visibility="{Binding InfoTargetHasLyrics, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=Inverse}" />
+
+                                <TextBlock Text="{Binding InfoTargetLyricsWriters}"
+                                           Style="{StaticResource Text.Footnote}"
+                                           Foreground="{StaticResource Brush.Text.Tertiary}"
+                                           Margin="0,16,0,0"
+                                           Visibility="{Binding InfoTargetHasLyricsWriters, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                </TabControl>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

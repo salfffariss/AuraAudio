@@ -1,0 +1,53 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- =======================================================================
+         SPATIAL METRICS, RADII & SHELL DIMENSIONS (03_design_spec.md Part C)
+         ======================================================================= -->
+
+    <!-- Spacing Scale -->
+    <sys:Double x:Key="Space.Quarter">3</sys:Double>
+    <sys:Double x:Key="Space.Half">6</sys:Double>
+    <sys:Double x:Key="Space.Single">12</sys:Double>
+    <sys:Double x:Key="Space.Section">16</sys:Double>
+    <sys:Double x:Key="Space.Double">24</sys:Double>
+    <sys:Double x:Key="Space.PageInset">30</sys:Double>
+
+    <!-- Corner Radii -->
+    <CornerRadius x:Key="Radius.None">0</CornerRadius>
+    <CornerRadius x:Key="Radius.Badge">2</CornerRadius>
+    <CornerRadius x:Key="Radius.Small">4</CornerRadius>
+    <CornerRadius x:Key="Radius.Control">6</CornerRadius>
+    <CornerRadius x:Key="Radius.Card">8</CornerRadius>
+    <CornerRadius x:Key="Radius.Sheet">12</CornerRadius>
+    <CornerRadius x:Key="Radius.HeroArt">14</CornerRadius>
+    <CornerRadius x:Key="Radius.SearchPill">16</CornerRadius>
+    <CornerRadius x:Key="Radius.ButtonPill">18</CornerRadius>
+    <CornerRadius x:Key="Radius.DockCapsule">20</CornerRadius>
+    <CornerRadius x:Key="Radius.LargePill">30</CornerRadius>
+
+    <!-- Shell & Control Heights -->
+    <sys:Double x:Key="Height.Row">40</sys:Double>
+    <sys:Double x:Key="Height.GridHeader">44</sys:Double>
+    <sys:Double x:Key="Height.TopBar">48</sys:Double>
+    <GridLength x:Key="GridHeight.TopBar">48</GridLength>
+    <sys:Double x:Key="Height.CompactBar">56</sys:Double>
+    <sys:Double x:Key="Height.BottomDock">72</sys:Double>
+    <sys:Double x:Key="Height.Button">36</sys:Double>
+    <sys:Double x:Key="Height.NavItem">36</sys:Double>
+
+    <!-- Shell & Pane Widths -->
+    <sys:Double x:Key="Width.RailCompact">56</sys:Double>
+    <sys:Double x:Key="Width.RailExpanded">248</sys:Double>
+    <sys:Double x:Key="Width.SearchBox">280</sys:Double>
+    <sys:Double x:Key="Width.RightPane">360</sys:Double>
+    <sys:Double x:Key="Width.MaxContent">1680</sys:Double>
+
+    <!-- Floating Bottom Dock & Content Scroll Padding (Decision 1) -->
+    <Thickness x:Key="Margin.DockCapsule">16,0,16,16</Thickness>
+    <Thickness x:Key="Padding.ContentBottomClearance">0,0,0,104</Thickness>
+    <Thickness x:Key="Padding.PageContent">30,24,30,104</Thickness>
+    <Thickness x:Key="Padding.PageHorizontal">30,0,30,0</Thickness>
+
+</ResourceDictionary>

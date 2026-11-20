@@ -6,16 +6,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
-    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;artifacts\**</DefaultItemExcludes>
 
     <!-- Audiophile Windows 11 Desktop Metadata -->
     <AssemblyName>AuraAudio</AssemblyName>
     <Product>AuraAudio Desktop Music Player</Product>
     <Company>AuraAudio SoundLab</Company>
     <Description>Bit-Perfect WASAPI Exclusive Audiophile Desktop Music Player for Windows 11</Description>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Version>2.0.0</Version>
+    <FileVersion>2.0.0.0</FileVersion>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
 
     <!-- Application Icon (Win32 Executable & Taskbar) -->
     <ApplicationIcon>Assets\AuraAudio.ico</ApplicationIcon>
@@ -29,6 +29,10 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AuraAudio.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <Resource Include="Assets\AuraAudio.ico" />

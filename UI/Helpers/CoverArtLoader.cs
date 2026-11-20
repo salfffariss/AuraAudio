@@ -99,8 +99,15 @@ public static class CoverArtLoader
                     if (rawBytes != null && rawBytes.Length > 0)
                     {
                         var thumbMgr = new ThumbnailCacheManager(CacheDir);
-                        thumbMgr.GetOrCreateThumbnail(rawBytes, coverCacheKey, ThumbnailSize.Grid);
-                        thumbMgr.GetOrCreateThumbnail(rawBytes, coverCacheKey, ThumbnailSize.Mini);
+                        thumbMgr.GetOrCreateThumbnail(rawBytes, coverCacheKey, size);
+                        if (size != ThumbnailSize.Grid)
+                        {
+                            thumbMgr.GetOrCreateThumbnail(rawBytes, coverCacheKey, ThumbnailSize.Grid);
+                        }
+                        if (size != ThumbnailSize.Mini)
+                        {
+                            thumbMgr.GetOrCreateThumbnail(rawBytes, coverCacheKey, ThumbnailSize.Mini);
+                        }
 
                         if (File.Exists(filePath))
                         {
@@ -115,6 +122,21 @@ public static class CoverArtLoader
                 }
             }
             catch { }
+        }
+
+        // 4. Fallback ke ukuran Grid (300px) jika ukuran Large (600px) belum dapat dibuat dari file asli
+        if (size == ThumbnailSize.Large)
+        {
+            string fallbackGridPath = Path.Combine(CacheDir, $"{coverCacheKey}_{(int)ThumbnailSize.Grid}.jpg");
+            if (File.Exists(fallbackGridPath))
+            {
+                var fallbackLoaded = LoadBitmapFromFile(fallbackGridPath, ThumbnailSize.Grid);
+                if (fallbackLoaded != null)
+                {
+                    _memoryImageCache[cacheKey] = fallbackLoaded;
+                    return fallbackLoaded;
+                }
+            }
         }
 
         return null;
@@ -142,6 +164,7 @@ public static class CoverArtLoader
 
 /// <summary>
 /// Converter XAML untuk mengubah coverArtCacheKey menjadi ImageSource WPF secara otomatis.
+/// Mendukung ConverterParameter: "Mini" (64px), "Grid" (300px), dan "Large" / "Hero" (600px).
 /// </summary>
 public class CoverArtConverter : IValueConverter
 {
@@ -150,9 +173,17 @@ public class CoverArtConverter : IValueConverter
         if (value is string key && !string.IsNullOrWhiteSpace(key))
         {
             var size = ThumbnailSize.Grid;
-            if (parameter is string paramStr && paramStr.Equals("Mini", StringComparison.OrdinalIgnoreCase))
+            if (parameter is string paramStr)
             {
-                size = ThumbnailSize.Mini;
+                if (paramStr.Equals("Mini", StringComparison.OrdinalIgnoreCase))
+                {
+                    size = ThumbnailSize.Mini;
+                }
+                else if (paramStr.Equals("Large", StringComparison.OrdinalIgnoreCase) ||
+                         paramStr.Equals("Hero", StringComparison.OrdinalIgnoreCase))
+                {
+                    size = ThumbnailSize.Large;
+                }
             }
             return CoverArtLoader.GetImage(key, size);
         }

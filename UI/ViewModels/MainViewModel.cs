@@ -14,9 +14,12 @@ using AuraAudio.Audio.Playlist;
 using AuraAudio.Core.Models;
 using AuraAudio.Database;
 using AuraAudio.Metadata;
+using AuraAudio.UI.Helpers;
 using Microsoft.Win32;
 
 namespace AuraAudio.UI.ViewModels;
+
+public sealed record PlaylistOverviewItem(Playlist Playlist, string? CoverArtCacheKey);
 
 /// <summary>
 /// ViewModel Utama yang mengorkestrasi state antarmuka pengguna (120 FPS UI Thread)
@@ -29,7 +32,18 @@ public class MainViewModel : ViewModelBase, IDisposable
     private readonly DatabaseManager _db;
     private readonly CancellationTokenSource _cts = new();
 
-    private string _currentView = "Library";
+    private sealed record NavigationEntry(
+        string Route,
+        Album? Album = null,
+        Artist? Artist = null,
+        Playlist? Playlist = null);
+
+    private string _currentView = "Home";
+    private readonly Stack<NavigationEntry> _backStack = new();
+    private readonly Stack<NavigationEntry> _forwardStack = new();
+    private bool _isHistoryNavigating;
+    private long _lastRecordedHistoryTrackId = -1;
+    private DateTime _lastRecordedHistoryUtc = DateTime.MinValue;
     private string _searchQuery = string.Empty;
     private long _totalTracksCount = 0;
     private string _libraryStatsText = "Memuat pustaka...";
@@ -50,7 +64,6 @@ public class MainViewModel : ViewModelBase, IDisposable
     private bool _isUserDraggingSlider = false;
 
     private string _signalPathBadge = "BIT-PERFECT DIRECT";
-    private string _signalPathColorHex = "#E5A23C";
     private SignalPathSummary? _currentSignalPath;
     private AudioIntegrityReport? _currentIntegrityReport;
     private string _streamSpecBadge = "--";
@@ -60,7 +73,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private string _outputDeviceName = "Default Endpoint";
     private string _sidebarDriverTitle = "WASAPI Exclusive";
     private string _sidebarDriverSubtitle = "Jalur Bit-Perfect Langsung";
-    private string _sidebarDriverColorHex = "#34D399";
+    private bool _isExclusiveDriverActive = true;
     private AuraAudio.UI.Helpers.WindowsMediaControlsManager? _mediaControlsManager;
     private PlaybackStatus _lastKnownStatus = PlaybackStatus.Stopped;
     private Artist? _selectedArtist;
@@ -69,24 +82,189 @@ public class MainViewModel : ViewModelBase, IDisposable
     private Playlist? _selectedPlaylist;
     private string _queueSummaryText = "Antrean kosong";
     private int _currentQueueIndex = -1;
+    private bool _isQueueDrawerOpen = false;
     private string _analysisErrorMessage = string.Empty;
+    private CancellationTokenSource? _searchDebounceCts;
 
-    public ObservableCollection<Track> DisplayedTracks { get; } = new();
-    public ObservableCollection<Album> DisplayedAlbums { get; } = new();
-    public ObservableCollection<Artist> DisplayedArtists { get; } = new();
-    public ObservableCollection<Album> ArtistAlbums { get; } = new();
-    public ObservableCollection<Track> ArtistTracks { get; } = new();
-    public ObservableCollection<ArtistAlbumGroup> ArtistAlbumGroups { get; } = new();
-    public ObservableCollection<QueueTrackItem> QueueTracks { get; } = new();
-    public ObservableCollection<Playlist> SavedPlaylists { get; } = new();
-    public ObservableCollection<Track> SelectedPlaylistTracks { get; } = new();
-    public ObservableCollection<Track> SelectedAlbumDetailTracks { get; } = new();
+    // Child ViewModels (v2.0.0 architecture, 03_design_spec.md Part D.6)
+    public PlayerPresentationViewModel Presentation { get; }
+    public HomeViewModel Home { get; }
+    public SearchViewModel Search { get; }
+    public LyricsViewModel Lyrics { get; }
+    public SettingsViewModel Settings { get; }
+
+    // Now Playing Music Detail Stage State
+    private TrackExtendedDetails _currentTrackDetails = TrackExtendedDetails.Empty;
+    private string _currentTrackArtistName = "—";
+    private string _currentTrackArtistSummary = string.Empty;
+    private string _currentTrackArtistInitials = "♪";
+    private string? _currentTrackArtistCoverKey;
+
+    public BulkObservableCollection<Track> DisplayedTracks { get; } = new();
+    public BulkObservableCollection<Album> DisplayedAlbums { get; } = new();
+    public BulkObservableCollection<Artist> DisplayedArtists { get; } = new();
+    public BulkObservableCollection<Album> ArtistAlbums { get; } = new();
+    public BulkObservableCollection<Track> ArtistTracks { get; } = new();
+    public BulkObservableCollection<ArtistAlbumGroup> ArtistAlbumGroups { get; } = new();
+    public BulkObservableCollection<Track> ArtistFeaturedTracks { get; } = new();
+    public BulkObservableCollection<QueueTrackItem> QueueTracks { get; } = new();
+    public BulkObservableCollection<Track> PlayHistoryTracks { get; } = new();
+    public BulkObservableCollection<Playlist> SavedPlaylists { get; } = new();
+    public BulkObservableCollection<PlaylistOverviewItem> SavedPlaylistCards { get; } = new();
+    public BulkObservableCollection<Track> SelectedPlaylistTracks { get; } = new();
+    public BulkObservableCollection<Track> SelectedAlbumDetailTracks { get; } = new();
+    public BulkObservableCollection<Track> CurrentTrackArtistTopTracks { get; } = new();
+
+    // Songs Column Browser (Format/Codec | Artist | Album)
+    private bool _isColumnBrowserVisible;
+    private string _selectedBrowserFormat = "All Formats";
+    private string _selectedBrowserArtist = "All Artists";
+    private string _selectedBrowserAlbum = "All Albums";
+    private IReadOnlyList<Track> _allLoadedTracksCache = Array.Empty<Track>();
+
+    public BulkObservableCollection<string> ColumnBrowserFormats { get; } = new() { "All Formats" };
+    public BulkObservableCollection<string> ColumnBrowserArtists { get; } = new() { "All Artists" };
+    public BulkObservableCollection<string> ColumnBrowserAlbums { get; } = new() { "All Albums" };
+
+    public bool IsColumnBrowserVisible
+    {
+        get => _isColumnBrowserVisible;
+        set => SetProperty(ref _isColumnBrowserVisible, value);
+    }
+
+    public string SelectedBrowserFormat
+    {
+        get => _selectedBrowserFormat;
+        set
+        {
+            string v = string.IsNullOrWhiteSpace(value) ? "All Formats" : value;
+            if (SetProperty(ref _selectedBrowserFormat, v))
+            {
+                RebuildColumnBrowserArtistsAndAlbums();
+                ApplyColumnBrowserFilter();
+            }
+        }
+    }
+
+    public string SelectedBrowserArtist
+    {
+        get => _selectedBrowserArtist;
+        set
+        {
+            string v = string.IsNullOrWhiteSpace(value) ? "All Artists" : value;
+            if (SetProperty(ref _selectedBrowserArtist, v))
+            {
+                RebuildColumnBrowserAlbums();
+                ApplyColumnBrowserFilter();
+            }
+        }
+    }
+
+    public string SelectedBrowserAlbum
+    {
+        get => _selectedBrowserAlbum;
+        set
+        {
+            string v = string.IsNullOrWhiteSpace(value) ? "All Albums" : value;
+            if (SetProperty(ref _selectedBrowserAlbum, v))
+            {
+                ApplyColumnBrowserFilter();
+            }
+        }
+    }
+
+    // Albums Sort & Quick Filter
+    private string _albumSortMode = "Title";
+    private string _albumFilterQuery = string.Empty;
+    public string AlbumSortMode
+    {
+        get => _albumSortMode;
+        set
+        {
+            if (SetProperty(ref _albumSortMode, value))
+            {
+                LoadAlbums();
+            }
+        }
+    }
+
+    public string AlbumFilterQuery
+    {
+        get => _albumFilterQuery;
+        set
+        {
+            if (SetProperty(ref _albumFilterQuery, value))
+            {
+                LoadAlbums();
+            }
+        }
+    }
+
+    // Artists Master-Detail Quick Filter
+    private string _artistFilterQuery = string.Empty;
+    public string ArtistFilterQuery
+    {
+        get => _artistFilterQuery;
+        set
+        {
+            if (SetProperty(ref _artistFilterQuery, value))
+            {
+                LoadArtists(_artistFilterQuery);
+            }
+        }
+    }
+
+    private string? _selectedPlaylistCoverKey;
+    public string? SelectedPlaylistCoverKey
+    {
+        get => _selectedPlaylistCoverKey;
+        private set => SetProperty(ref _selectedPlaylistCoverKey, value);
+    }
+
+    public TrackExtendedDetails CurrentTrackDetails
+    {
+        get => _currentTrackDetails;
+        private set => SetProperty(ref _currentTrackDetails, value);
+    }
+
+    public string CurrentTrackArtistName
+    {
+        get => _currentTrackArtistName;
+        private set => SetProperty(ref _currentTrackArtistName, value);
+    }
+
+    public string CurrentTrackArtistSummary
+    {
+        get => _currentTrackArtistSummary;
+        private set => SetProperty(ref _currentTrackArtistSummary, value);
+    }
+
+    public string CurrentTrackArtistInitials
+    {
+        get => _currentTrackArtistInitials;
+        private set => SetProperty(ref _currentTrackArtistInitials, value);
+    }
+
+    public string? CurrentTrackArtistCoverKey
+    {
+        get => _currentTrackArtistCoverKey;
+        private set => SetProperty(ref _currentTrackArtistCoverKey, value);
+    }
+
+    public bool IsNowPlayingView => _currentView == "NowPlaying";
+    public bool HasCurrentTrack => _currentTrack != null;
 
     private Album? _selectedAlbumDetail;
     public Album? SelectedAlbumDetail
     {
         get => _selectedAlbumDetail;
-        set => SetProperty(ref _selectedAlbumDetail, value);
+        set
+        {
+            if (SetProperty(ref _selectedAlbumDetail, value))
+            {
+                NotifyBreadcrumbChanged();
+            }
+        }
     }
 
     private string _albumDetailSummaryText = string.Empty;
@@ -94,6 +272,48 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         get => _albumDetailSummaryText;
         set => SetProperty(ref _albumDetailSummaryText, value);
+    }
+
+    private string _albumDetailAudioBadge = string.Empty;
+    public string AlbumDetailAudioBadge
+    {
+        get => _albumDetailAudioBadge;
+        private set => SetProperty(ref _albumDetailAudioBadge, value);
+    }
+
+    private string _albumDetailFooterText = string.Empty;
+    public string AlbumDetailFooterText
+    {
+        get => _albumDetailFooterText;
+        private set => SetProperty(ref _albumDetailFooterText, value);
+    }
+
+    private Album? _artistLatestRelease;
+    public Album? ArtistLatestRelease
+    {
+        get => _artistLatestRelease;
+        private set => SetProperty(ref _artistLatestRelease, value);
+    }
+
+    private string _artistFormatsSummary = "--";
+    public string ArtistFormatsSummary
+    {
+        get => _artistFormatsSummary;
+        private set => SetProperty(ref _artistFormatsSummary, value);
+    }
+
+    private string _artistTotalRuntimeText = "--";
+    public string ArtistTotalRuntimeText
+    {
+        get => _artistTotalRuntimeText;
+        private set => SetProperty(ref _artistTotalRuntimeText, value);
+    }
+
+    private string _artistHiResSummaryText = "--";
+    public string ArtistHiResSummaryText
+    {
+        get => _artistHiResSummaryText;
+        private set => SetProperty(ref _artistHiResSummaryText, value);
     }
 
     private string _previousView = "Albums";
@@ -118,6 +338,7 @@ public class MainViewModel : ViewModelBase, IDisposable
             if (SetProperty(ref _selectedPlaylist, value))
             {
                 LoadSelectedPlaylistTracks();
+                NotifyBreadcrumbChanged();
             }
         }
     }
@@ -134,16 +355,49 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _currentQueueIndex, value);
     }
 
+    public bool IsQueueDrawerOpen
+    {
+        get => _isQueueDrawerOpen;
+        set
+        {
+            if (SetProperty(ref _isQueueDrawerOpen, value))
+            {
+                if (value && Presentation != null && Presentation.ActiveRightPane != RightPaneMode.Queue)
+                {
+                    Presentation.ActiveRightPane = RightPaneMode.Queue;
+                }
+                else if (!value && Presentation != null && Presentation.ActiveRightPane == RightPaneMode.Queue)
+                {
+                    Presentation.ActiveRightPane = RightPaneMode.None;
+                }
+            }
+        }
+    }
+
+    public int QueueCount => QueueTracks.Count;
+
     public Artist? SelectedArtist
     {
         get => _selectedArtist;
-        set => SetProperty(ref _selectedArtist, value);
+        set
+        {
+            if (SetProperty(ref _selectedArtist, value))
+            {
+                NotifyBreadcrumbChanged();
+            }
+        }
     }
 
     public bool IsArtistDetailView
     {
         get => _isArtistDetailView;
-        set => SetProperty(ref _isArtistDetailView, value);
+        set
+        {
+            if (SetProperty(ref _isArtistDetailView, value))
+            {
+                NotifyBreadcrumbChanged();
+            }
+        }
     }
 
     public string ArtistStatsSummary
@@ -158,22 +412,57 @@ public class MainViewModel : ViewModelBase, IDisposable
         get => _currentView;
         set
         {
-            if (SetProperty(ref _currentView, value))
+            string normalized = string.Equals(value, "Library", StringComparison.OrdinalIgnoreCase)
+                ? "Songs"
+                : (string.IsNullOrWhiteSpace(value) ? "Home" : value);
+
+            if (string.Equals(_currentView, normalized, StringComparison.Ordinal))
             {
-                if (value != "Artists")
+                return;
+            }
+
+            string previous = _currentView;
+            if (!_isHistoryNavigating && !string.IsNullOrWhiteSpace(previous))
+            {
+                _backStack.Push(CaptureNavigationEntry(previous));
+                _forwardStack.Clear();
+            }
+
+            if (SetProperty(ref _currentView, normalized))
+            {
+                OnPropertyChanged(nameof(IsNowPlayingView));
+                if (normalized != "Artists" && normalized != "ArtistDetail")
                 {
                     IsArtistDetailView = false;
                 }
 
-                if (value == "Albums" && DisplayedAlbums.Count == 0)
+                if (normalized == "Home")
+                {
+                    _ = Home?.RefreshAsync();
+                }
+                else if (normalized == "Albums" && DisplayedAlbums.Count == 0)
                 {
                     LoadAlbums();
                 }
-                else if (value == "Artists" && DisplayedArtists.Count == 0)
+                else if (normalized == "Artists")
                 {
-                    LoadArtists();
+                    if (DisplayedArtists.Count == 0)
+                    {
+                        LoadArtists(_artistFilterQuery);
+                    }
+                    if (SelectedArtist == null && DisplayedArtists.Count > 0)
+                    {
+                        ViewArtistDetail(DisplayedArtists[0]);
+                    }
                 }
-                else if (value == "Queue")
+                else if (normalized == "Playlists" || normalized == "PlaylistDetail")
+                {
+                    if (SavedPlaylists.Count == 0)
+                    {
+                        LoadPlaylists();
+                    }
+                }
+                else if (normalized == "Queue")
                 {
                     RefreshQueue();
                     if (SavedPlaylists.Count == 0)
@@ -181,8 +470,78 @@ public class MainViewModel : ViewModelBase, IDisposable
                         LoadPlaylists();
                     }
                 }
+                else if (normalized == "NowPlaying")
+                {
+                    RefreshCurrentTrackExtendedContext();
+                }
+
+                NotifyBreadcrumbChanged();
             }
         }
+    }
+
+    public string CurrentBreadcrumbRoot
+    {
+        get
+        {
+            bool isEn = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en";
+            return CurrentView switch
+            {
+                "Home" => isEn ? "Home" : "Beranda",
+                "Songs" => isEn ? "Songs" : "Lagu",
+                "Albums" => isEn ? "Albums" : "Album",
+                "AlbumDetail" => PreviousView == "Artists"
+                    ? (isEn ? "Artists" : "Artis")
+                    : (isEn ? "Albums" : "Album"),
+                "Artists" => isEn ? "Artists" : "Artis",
+                "ArtistDetail" => isEn ? "Artists" : "Artis",
+                "Playlists" => isEn ? "Playlists" : "Playlist",
+                "PlaylistDetail" => isEn ? "Playlists" : "Playlist",
+                "Search" => isEn ? "Search" : "Cari",
+                "Inspector" => isEn ? "Audio Inspector" : "Inspektor Audio",
+                "Settings" => isEn ? "Settings" : "Pengaturan",
+                "NowPlaying" => isEn ? "Now Playing" : "Sedang Diputar",
+                _ => isEn ? "Songs" : "Lagu"
+            };
+        }
+    }
+
+    public string CurrentBreadcrumbDetail
+    {
+        get
+        {
+            if (CurrentView == "AlbumDetail" && SelectedAlbumDetail != null)
+                return SelectedAlbumDetail.Title;
+            if ((CurrentView == "Artists" || CurrentView == "ArtistDetail") && SelectedArtist != null)
+                return SelectedArtist.Name;
+            if (CurrentView == "PlaylistDetail" && SelectedPlaylist != null)
+                return SelectedPlaylist.Name;
+            if (CurrentView == "Search" && Search != null && Search.HasQuery)
+                return Search.Query;
+            if (CurrentView == "NowPlaying" && CurrentTrack != null)
+                return CurrentTrack.Title;
+            return string.Empty;
+        }
+    }
+
+    public bool HasBreadcrumbDetail => !string.IsNullOrEmpty(CurrentBreadcrumbDetail);
+
+    public bool CanNavigateBack =>
+        _backStack.Count > 0 ||
+        CurrentView == "AlbumDetail" ||
+        CurrentView == "ArtistDetail" ||
+        CurrentView == "PlaylistDetail" ||
+        CurrentView == "NowPlaying";
+
+    public bool CanNavigateForward => _forwardStack.Count > 0;
+
+    private void NotifyBreadcrumbChanged()
+    {
+        OnPropertyChanged(nameof(CurrentBreadcrumbRoot));
+        OnPropertyChanged(nameof(CurrentBreadcrumbDetail));
+        OnPropertyChanged(nameof(HasBreadcrumbDetail));
+        OnPropertyChanged(nameof(CanNavigateBack));
+        OnPropertyChanged(nameof(CanNavigateForward));
     }
 
     public string SearchQuery
@@ -192,7 +551,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _searchQuery, value))
             {
-                FilterData();
+                ScheduleFilterData();
             }
         }
     }
@@ -223,9 +582,36 @@ public class MainViewModel : ViewModelBase, IDisposable
             if (SetProperty(ref _currentTrack, value))
             {
                 StreamSpecBadge = value?.StreamSpec.FormattedBadge ?? "--";
+                OnPropertyChanged(nameof(LcdSpecBadge));
+                OnPropertyChanged(nameof(HasCurrentTrack));
+                OnPropertyChanged(nameof(IsInfoTargetCurrentTrack));
                 ActivePlayingTrackId = value?.Id;
+                RefreshCurrentTrackExtendedContext();
+                if (CurrentView == "NowPlaying")
+                {
+                    NotifyBreadcrumbChanged();
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// Badge spesifikasi ringkas untuk kapsul LCD bar atas (misal "24/48 FLAC" atau "DSD64")
+    /// agar judul lagu tetap leluasa pada lebar jendela minimal (980px).
+    /// </summary>
+    public string LcdSpecBadge => FormatLcdSpecBadge(_currentTrack?.StreamSpec);
+
+    private static string FormatLcdSpecBadge(AudioStreamSpec? spec)
+    {
+        if (spec == null) return "--";
+        if (spec.IsDsd)
+        {
+            return spec.FormattedBadge.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+        }
+
+        double khz = Math.Round(spec.SampleRateHz / 1000.0, 1);
+        string khzText = khz.ToString("0.#", CultureInfo.InvariantCulture);
+        return $"{(int)spec.BitDepth}/{khzText} {spec.Codec}";
     }
 
     public long? ActivePlayingTrackId
@@ -270,12 +656,6 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _signalPathBadge, value);
     }
 
-    public string SignalPathColorHex
-    {
-        get => _signalPathColorHex;
-        set => SetProperty(ref _signalPathColorHex, value);
-    }
-
     public SignalPathSummary? CurrentSignalPath
     {
         get => _currentSignalPath;
@@ -313,10 +693,10 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _sidebarDriverSubtitle, value);
     }
 
-    public string SidebarDriverColorHex
+    public bool IsExclusiveDriverActive
     {
-        get => _sidebarDriverColorHex;
-        set => SetProperty(ref _sidebarDriverColorHex, value);
+        get => _isExclusiveDriverActive;
+        set => SetProperty(ref _isExclusiveDriverActive, value);
     }
 
     public bool IsLibraryEmpty => DisplayedTracks.Count == 0;
@@ -347,15 +727,13 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _isShuffleEnabled, value))
             {
-                OnPropertyChanged(nameof(ShuffleColorHex));
                 OnPropertyChanged(nameof(ShuffleToolTip));
             }
         }
     }
 
-    public string ShuffleColorHex => IsShuffleEnabled ? "#E5A23C" : "#949087";
-    public string ShuffleToolTip => IsShuffleEnabled 
-        ? (AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en" ? "Shuffle Mode Active (Fisher-Yates)" : "Mode Acak Aktif (Fisher-Yates)") 
+    public string ShuffleToolTip => IsShuffleEnabled
+        ? (AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en" ? "Shuffle Mode Active (Fisher-Yates)" : "Mode Acak Aktif (Fisher-Yates)")
         : (AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en" ? "Shuffle Mode Off" : "Mode Acak Nonaktif");
 
     public PlaybackRepeatMode RepeatMode
@@ -366,14 +744,14 @@ public class MainViewModel : ViewModelBase, IDisposable
             if (SetProperty(ref _repeatMode, value))
             {
                 OnPropertyChanged(nameof(IsRepeatOne));
-                OnPropertyChanged(nameof(RepeatColorHex));
+                OnPropertyChanged(nameof(IsRepeatActive));
                 OnPropertyChanged(nameof(RepeatToolTip));
             }
         }
     }
 
     public bool IsRepeatOne => RepeatMode == PlaybackRepeatMode.RepeatOne;
-    public string RepeatColorHex => RepeatMode != PlaybackRepeatMode.Off ? "#E5A23C" : "#949087";
+    public bool IsRepeatActive => RepeatMode != PlaybackRepeatMode.Off;
     public string RepeatToolTip => RepeatMode switch
     {
         PlaybackRepeatMode.RepeatAll => AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en" ? "Repeat: All Tracks" : "Pengulangan: Semua Lagu",
@@ -490,6 +868,8 @@ public class MainViewModel : ViewModelBase, IDisposable
     public DatabaseManager Database => _db;
     public event Action? RequestOpenHardwareConfig;
     public event Action? RequestOpenLibraryManager;
+    public event Action<Track>? RequestOpenAddToPlaylist;
+    public event Action<string, string, Action<string>>? RequestOpenRenamePlaylist;
 
     public ICommand InspectTrackCommand { get; }
     public ICommand AnalyzeTrackCommand { get; }
@@ -529,6 +909,133 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public string CurrentLanguage => AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage.ToUpperInvariant();
     public ICommand ToggleLanguageCommand { get; }
+    public ICommand ToggleQueueDrawerCommand { get; }
+    public ICommand CloseQueueDrawerCommand { get; }
+    public ICommand ClearSearchCommand { get; }
+    public ICommand NavigateBackCommand { get; }
+    public ICommand NavigateForwardCommand { get; }
+    public ICommand OpenPlaylistCommand { get; }
+    public ICommand ToggleColumnBrowserCommand { get; }
+    public ICommand OpenFullArtistPageCommand { get; }
+    public ICommand PlayAlbumNextCommand { get; }
+    public ICommand AddAlbumToQueueCommand { get; }
+    public ICommand PlayArtistAlbumGroupCommand { get; }
+    public ICommand PlayTrackInArtistContextCommand { get; }
+    public ICommand RenameSelectedPlaylistDirectCommand { get; }
+    public ICommand ExportSelectedPlaylistToM3uCommand { get; }
+    public ICommand ToggleNowPlayingDetailCommand { get; }
+    public ICommand OpenTrackDetailCommand { get; }
+    public ICommand NavigateToArtistLinkCommand { get; }
+    public ICommand NavigateToAlbumLinkCommand { get; }
+    public ICommand PlayArtistTopTrackCommand { get; }
+    public ICommand OpenInfoForTrackCommand { get; }
+    public ICommand AddTargetTrackToPlaylistCommand { get; }
+    public ICommand CreatePlaylistAndAddTargetTrackCommand { get; }
+    public ICommand CloseAddToPlaylistSheetCommand { get; }
+    public ICommand ConfirmRenameSheetCommand { get; }
+    public ICommand CancelRenameSheetCommand { get; }
+    public ICommand ClearPlayHistoryCommand { get; }
+    public ICommand ImportLyricsFileCommand { get; }
+
+    // Stage 5 Modal Sheets State (Get Info, Add to Playlist, Rename / New Playlist)
+    private Track? _infoTargetTrack;
+    private TrackExtendedDetails _infoTargetDetails = TrackExtendedDetails.Empty;
+    private string _infoTargetLyricsSource = "No Lyrics";
+    private string _infoTargetLyricsText = string.Empty;
+    private string _infoTargetLyricsWriters = string.Empty;
+    private Track? _addToPlaylistTargetTrack;
+    private bool _isAddToPlaylistSheetOpen;
+    private bool _isRenamePlaylistSheetOpen;
+    private string _renameSheetTitle = "Rename Playlist";
+    private string _renameSheetInputText = string.Empty;
+    private Action<string>? _renameSheetCallback;
+
+    public Track? InfoTargetTrack
+    {
+        get => _infoTargetTrack ?? CurrentTrack;
+        private set
+        {
+            if (SetProperty(ref _infoTargetTrack, value))
+            {
+                OnPropertyChanged(nameof(IsInfoTargetCurrentTrack));
+            }
+        }
+    }
+
+    public bool IsInfoTargetCurrentTrack =>
+        InfoTargetTrack != null &&
+        CurrentTrack != null &&
+        string.Equals(InfoTargetTrack.FilePath, CurrentTrack.FilePath, StringComparison.OrdinalIgnoreCase);
+
+    public TrackExtendedDetails InfoTargetDetails
+    {
+        get => _infoTargetDetails;
+        private set => SetProperty(ref _infoTargetDetails, value);
+    }
+
+    public string InfoTargetLyricsSource
+    {
+        get => _infoTargetLyricsSource;
+        private set => SetProperty(ref _infoTargetLyricsSource, value);
+    }
+
+    public string InfoTargetLyricsText
+    {
+        get => _infoTargetLyricsText;
+        private set
+        {
+            if (SetProperty(ref _infoTargetLyricsText, value))
+            {
+                OnPropertyChanged(nameof(InfoTargetHasLyrics));
+            }
+        }
+    }
+
+    public bool InfoTargetHasLyrics => !string.IsNullOrWhiteSpace(_infoTargetLyricsText);
+
+    public string InfoTargetLyricsWriters
+    {
+        get => _infoTargetLyricsWriters;
+        private set
+        {
+            if (SetProperty(ref _infoTargetLyricsWriters, value))
+            {
+                OnPropertyChanged(nameof(InfoTargetHasLyricsWriters));
+            }
+        }
+    }
+
+    public bool InfoTargetHasLyricsWriters => !string.IsNullOrWhiteSpace(_infoTargetLyricsWriters);
+
+    public Track? AddToPlaylistTargetTrack
+    {
+        get => _addToPlaylistTargetTrack;
+        private set => SetProperty(ref _addToPlaylistTargetTrack, value);
+    }
+
+    public bool IsAddToPlaylistSheetOpen
+    {
+        get => _isAddToPlaylistSheetOpen;
+        set => SetProperty(ref _isAddToPlaylistSheetOpen, value);
+    }
+
+    public bool IsRenamePlaylistSheetOpen
+    {
+        get => _isRenamePlaylistSheetOpen;
+        set => SetProperty(ref _isRenamePlaylistSheetOpen, value);
+    }
+
+    public string RenameSheetTitle
+    {
+        get => _renameSheetTitle;
+        private set => SetProperty(ref _renameSheetTitle, value);
+    }
+
+    public string RenameSheetInputText
+    {
+        get => _renameSheetInputText;
+        set => SetProperty(ref _renameSheetInputText, value);
+    }
 
     public MainViewModel(AudiophilePlaybackController? controller = null, DatabaseManager? db = null)
     {
@@ -541,6 +1048,48 @@ public class MainViewModel : ViewModelBase, IDisposable
         _db = db ?? new DatabaseManager(dbPath);
         _db.Initialize();
         AuraAudio.UI.Helpers.CoverArtLoader.SetDatabase(_db);
+
+        // Initialize v2.0.0 child ViewModels (03_design_spec.md Part D.6)
+        Presentation = new PlayerPresentationViewModel();
+        Home = new HomeViewModel(_db, this);
+        Search = new SearchViewModel(_db, this);
+        Lyrics = new LyricsViewModel(sec => OnSliderDragCompleted(sec));
+        Settings = new SettingsViewModel(_controller, _db, RefreshLibraryAfterSettingsMutation, RefreshAudioAfterSettingsMutation);
+
+        Presentation.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(PlayerPresentationViewModel.ActiveRightPane))
+            {
+                bool queueOpen = Presentation.IsQueuePaneActive;
+                if (_isQueueDrawerOpen != queueOpen)
+                {
+                    _isQueueDrawerOpen = queueOpen;
+                    OnPropertyChanged(nameof(IsQueueDrawerOpen));
+                }
+                if (queueOpen)
+                {
+                    RefreshQueue();
+                    RefreshPlayHistory();
+                }
+            }
+            else if (args.PropertyName == nameof(PlayerPresentationViewModel.MiniPlayerTrayMode) &&
+                     Presentation.IsMiniPlayerQueueActive)
+            {
+                RefreshQueue();
+                RefreshPlayHistory();
+            }
+            else if (args.PropertyName == nameof(PlayerPresentationViewModel.IsInfoSheetOpen))
+            {
+                if (Presentation.IsInfoSheetOpen)
+                {
+                    PrepareInfoSheetForTrack(_infoTargetTrack ?? CurrentTrack ?? SelectedTrack);
+                }
+                else
+                {
+                    _infoTargetTrack = null;
+                }
+            }
+        };
 
         // Pulihkan preferensi bahasa aplikasi dari database
         var savedLang = _db.GetSetting("app_language");
@@ -561,6 +1110,8 @@ public class MainViewModel : ViewModelBase, IDisposable
             UpdateLibraryStatsText();
             RefreshQueue();
             LoadSelectedPlaylistTracks();
+            RefreshCurrentTrackExtendedContext();
+            NotifyBreadcrumbChanged();
             if (DisplayedAlbums.Count > 0) LoadAlbums();
             if (DisplayedArtists.Count > 0) LoadArtists(SearchQuery);
         };
@@ -571,6 +1122,317 @@ public class MainViewModel : ViewModelBase, IDisposable
             AuraAudio.UI.Helpers.LocalizationManager.SetLanguage(next);
             _db.SetSetting("app_language", next);
             OnPropertyChanged(nameof(CurrentLanguage));
+        });
+
+        ToggleQueueDrawerCommand = new RelayCommand(() =>
+        {
+            Presentation.ToggleQueuePaneCommand.Execute(null);
+        });
+
+        CloseQueueDrawerCommand = new RelayCommand(() =>
+        {
+            Presentation.CloseRightPaneCommand.Execute(null);
+        });
+
+        ClearSearchCommand = new RelayCommand(() =>
+        {
+            SearchQuery = string.Empty;
+            Search.ClearSearchCommand.Execute(null);
+        });
+
+        NavigateBackCommand = new RelayCommand(() =>
+        {
+            if (_backStack.Count > 0)
+            {
+                var target = _backStack.Pop();
+                _forwardStack.Push(CaptureNavigationEntry(_currentView));
+                RestoreNavigationEntry(target);
+                return;
+            }
+
+            if (CurrentView == "NowPlaying")
+            {
+                CurrentView = string.IsNullOrWhiteSpace(PreviousView) || PreviousView == "NowPlaying" ? "Home" : PreviousView;
+            }
+            else if (CurrentView == "AlbumDetail")
+            {
+                CurrentView = string.IsNullOrWhiteSpace(PreviousView) || PreviousView == "AlbumDetail" ? "Albums" : PreviousView;
+            }
+            else if (CurrentView == "ArtistDetail")
+            {
+                CurrentView = "Artists";
+            }
+            else if (CurrentView == "PlaylistDetail")
+            {
+                CurrentView = "Playlists";
+            }
+        });
+
+        NavigateForwardCommand = new RelayCommand(() =>
+        {
+            if (_forwardStack.Count == 0) return;
+
+            var target = _forwardStack.Pop();
+            _backStack.Push(CaptureNavigationEntry(_currentView));
+            RestoreNavigationEntry(target);
+        });
+
+        OpenPlaylistCommand = new RelayCommand(param =>
+        {
+            var playlist = (param as PlaylistOverviewItem)?.Playlist ?? param as Playlist;
+            if (playlist != null)
+            {
+                if (!(_currentView == "PlaylistDetail" && SelectedPlaylist?.Id == playlist.Id))
+                {
+                    _backStack.Push(CaptureNavigationEntry(_currentView));
+                    _forwardStack.Clear();
+                }
+                _isHistoryNavigating = true;
+                try
+                {
+                    SelectedPlaylist = playlist;
+                    CurrentView = "PlaylistDetail";
+                }
+                finally
+                {
+                    _isHistoryNavigating = false;
+                }
+                NotifyBreadcrumbChanged();
+            }
+        });
+
+        ToggleColumnBrowserCommand = new RelayCommand(() =>
+        {
+            IsColumnBrowserVisible = !IsColumnBrowserVisible;
+            if (!IsColumnBrowserVisible)
+            {
+                _selectedBrowserFormat = "All Formats";
+                _selectedBrowserArtist = "All Artists";
+                _selectedBrowserAlbum = "All Albums";
+                OnPropertyChanged(nameof(SelectedBrowserFormat));
+                OnPropertyChanged(nameof(SelectedBrowserArtist));
+                OnPropertyChanged(nameof(SelectedBrowserAlbum));
+                ApplyColumnBrowserFilter();
+            }
+        });
+
+        OpenFullArtistPageCommand = new RelayCommand(param =>
+        {
+            var artist = param as Artist ?? SelectedArtist;
+            if (artist != null)
+            {
+                OpenArtistDetailPage(artist);
+            }
+        });
+
+        PlayAlbumNextCommand = new RelayCommand(param =>
+        {
+            if (param is Album album)
+            {
+                var albumTracks = _db.GetTracksByAlbum(album.Title, album.Artist);
+                for (int i = albumTracks.Count - 1; i >= 0; i--)
+                {
+                    _controller.PlayNext(albumTracks[i]);
+                }
+                RefreshQueue();
+            }
+        });
+
+        AddAlbumToQueueCommand = new RelayCommand(param =>
+        {
+            if (param is Album album)
+            {
+                var albumTracks = _db.GetTracksByAlbum(album.Title, album.Artist);
+                foreach (var t in albumTracks)
+                {
+                    _controller.Enqueue(t);
+                }
+                RefreshQueue();
+            }
+        });
+
+        PlayArtistAlbumGroupCommand = new RelayCommand(async param =>
+        {
+            if (param is ArtistAlbumGroup group && group.Tracks.Count > 0)
+            {
+                await _controller.PlayQueueAsync(group.Tracks, 0);
+                RefreshQueue();
+            }
+        });
+
+        PlayTrackInArtistContextCommand = new RelayCommand(async param =>
+        {
+            if (param is Track track)
+            {
+                int idx = ArtistTracks.IndexOf(track);
+                if (idx >= 0 && ArtistTracks.Count > 0)
+                {
+                    await _controller.PlayQueueAsync(ArtistTracks, idx);
+                }
+                else
+                {
+                    await _controller.PlayQueueAsync(new[] { track }, 0);
+                }
+                RefreshQueue();
+            }
+        });
+
+        RenameSelectedPlaylistDirectCommand = new RelayCommand(param =>
+        {
+            if (param is string newName && !string.IsNullOrWhiteSpace(newName) && SelectedPlaylist != null)
+            {
+                long id = SelectedPlaylist.Id;
+                _db.RenamePlaylist(id, newName.Trim());
+                LoadPlaylists();
+                SelectedPlaylist = SavedPlaylists.FirstOrDefault(p => p.Id == id);
+            }
+        });
+
+        ExportSelectedPlaylistToM3uCommand = new RelayCommand(() =>
+        {
+            if (SelectedPlaylist == null || SelectedPlaylistTracks.Count == 0) return;
+
+            var dialog = new SaveFileDialog
+            {
+                Title = "Export Playlist to M3U8",
+                Filter = "M3U8 Playlist (*.m3u8)|*.m3u8|M3U Playlist (*.m3u)|*.m3u",
+                FileName = $"{SelectedPlaylist.Name}.m3u8"
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                try
+                {
+                    M3uPlaylistService.ExportToM3u(dialog.FileName, SelectedPlaylistTracks);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ExportSelectedPlaylistToM3u Warning] {ex.Message}");
+                }
+            }
+        });
+
+        ToggleNowPlayingDetailCommand = new RelayCommand(() =>
+        {
+            if (CurrentView == "NowPlaying")
+            {
+                CurrentView = string.IsNullOrWhiteSpace(PreviousView) || PreviousView == "NowPlaying" ? "Library" : PreviousView;
+            }
+            else
+            {
+                if (CurrentTrack == null && DisplayedTracks.Count > 0)
+                {
+                    CurrentTrack = DisplayedTracks[0];
+                }
+                PreviousView = CurrentView;
+                CurrentView = "NowPlaying";
+            }
+        });
+
+        OpenTrackDetailCommand = new RelayCommand(param =>
+        {
+            if (param is Track target)
+            {
+                SelectedTrack = target;
+                if (CurrentTrack == null)
+                {
+                    CurrentTrack = target;
+                }
+            }
+            if (CurrentView != "NowPlaying")
+            {
+                PreviousView = CurrentView;
+                CurrentView = "NowPlaying";
+            }
+            else
+            {
+                RefreshCurrentTrackExtendedContext();
+            }
+        });
+
+        NavigateToArtistLinkCommand = new RelayCommand(param =>
+        {
+            if (param is Artist artistObj)
+            {
+                OpenArtistDetailPage(artistObj);
+                return;
+            }
+
+            string? rawArtist = param switch
+            {
+                Track t => t.Artist,
+                string s => s,
+                _ => CurrentTrack?.Artist
+            };
+
+            if (string.IsNullOrWhiteSpace(rawArtist)) return;
+
+            var parsed = ArtistParser.ParseArtists(rawArtist);
+            string primaryName = parsed.Count > 0 ? parsed[0] : rawArtist.Trim();
+            var matches = _db.GetArtists(primaryName);
+            var exact = matches.FirstOrDefault(a => string.Equals(a.Name, primaryName, StringComparison.OrdinalIgnoreCase))
+                        ?? matches.FirstOrDefault();
+
+            if (exact == null)
+            {
+                var artistTracks = _db.GetTracksByArtist(primaryName);
+                int albCount = artistTracks.Select(x => x.Album).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                string? coverKey = artistTracks.FirstOrDefault(x => !string.IsNullOrEmpty(x.CoverArtCacheKey))?.CoverArtCacheKey;
+                exact = new Artist(primaryName, artistTracks.Count, Math.Max(1, albCount), coverKey);
+            }
+
+            OpenArtistDetailPage(exact);
+        });
+
+        NavigateToAlbumLinkCommand = new RelayCommand(param =>
+        {
+            if (param is Album albObj)
+            {
+                OpenAlbumDetail(albObj);
+                return;
+            }
+
+            string? albumTitle = null;
+            string? artistHint = null;
+            if (param is Track t)
+            {
+                albumTitle = t.Album;
+                artistHint = string.IsNullOrWhiteSpace(t.AlbumArtist) ? t.Artist : t.AlbumArtist;
+            }
+            else if (param is string s)
+            {
+                albumTitle = s;
+                artistHint = CurrentTrack?.AlbumArtist ?? CurrentTrack?.Artist;
+            }
+            else if (CurrentTrack != null)
+            {
+                albumTitle = CurrentTrack.Album;
+                artistHint = string.IsNullOrWhiteSpace(CurrentTrack.AlbumArtist) ? CurrentTrack.Artist : CurrentTrack.AlbumArtist;
+            }
+
+            if (string.IsNullOrWhiteSpace(albumTitle)) return;
+
+            var album = _db.GetAlbumByTitle(albumTitle, artistHint);
+            if (album != null)
+            {
+                OpenAlbumDetail(album);
+            }
+        });
+
+        PlayArtistTopTrackCommand = new RelayCommand(async param =>
+        {
+            if (param is Track track)
+            {
+                int idx = CurrentTrackArtistTopTracks.IndexOf(track);
+                if (idx >= 0 && CurrentTrackArtistTopTracks.Count > 0)
+                {
+                    await _controller.PlayQueueAsync(CurrentTrackArtistTopTracks, idx);
+                }
+                else
+                {
+                    await _controller.PlayQueueAsync(new[] { track }, 0);
+                }
+                RefreshQueue();
+            }
         });
 
         // Pulihkan konfigurasi hardware dari sesi sebelumnya
@@ -594,10 +1456,36 @@ public class MainViewModel : ViewModelBase, IDisposable
         StopCommand = new RelayCommand(() => _controller.Stop());
         NextTrackCommand = new RelayCommand(async () => await _controller.NextAsync());
         PreviousTrackCommand = new RelayCommand(async () => await _controller.PreviousAsync());
-        ToggleShuffleCommand = new RelayCommand(() => _controller.ToggleShuffle());
+        ToggleShuffleCommand = new RelayCommand(() =>
+        {
+            _controller.ToggleShuffle();
+            RefreshQueue();
+        });
         ToggleRepeatCommand = new RelayCommand(CycleRepeatMode);
-        OpenHardwareConfigCommand = new RelayCommand(() => RequestOpenHardwareConfig?.Invoke());
-        OpenLibraryManagerCommand = new RelayCommand(() => RequestOpenLibraryManager?.Invoke());
+        OpenHardwareConfigCommand = new RelayCommand(() =>
+        {
+            if (RequestOpenHardwareConfig != null)
+            {
+                RequestOpenHardwareConfig.Invoke();
+            }
+            else
+            {
+                Settings.ActiveCategory = "Playback";
+                CurrentView = "Settings";
+            }
+        });
+        OpenLibraryManagerCommand = new RelayCommand(() =>
+        {
+            if (RequestOpenLibraryManager != null)
+            {
+                RequestOpenLibraryManager.Invoke();
+            }
+            else
+            {
+                Settings.ActiveCategory = "Library";
+                CurrentView = "Settings";
+            }
+        });
         NavigateCommand = new RelayCommand(param =>
         {
             if (param is string viewName)
@@ -606,6 +1494,22 @@ public class MainViewModel : ViewModelBase, IDisposable
                 {
                     OpenHardwareConfigCommand.Execute(null);
                     return;
+                }
+                if (viewName == "Queue")
+                {
+                    ToggleQueueDrawerCommand.Execute(null);
+                    return;
+                }
+                if (viewName == "NowPlaying")
+                {
+                    if (CurrentTrack == null && DisplayedTracks.Count > 0)
+                    {
+                        CurrentTrack = DisplayedTracks[0];
+                    }
+                    if (CurrentView != "NowPlaying")
+                    {
+                        PreviousView = CurrentView;
+                    }
                 }
                 CurrentView = viewName;
                 if (viewName == "Inspector" && CurrentIntegrityReport == null && (InspectedTrack != null || CurrentTrack != null))
@@ -620,7 +1524,10 @@ public class MainViewModel : ViewModelBase, IDisposable
             if (track != null)
             {
                 int idx = DisplayedTracks.IndexOf(track);
-                await _controller.PlayQueueAsync(DisplayedTracks, idx >= 0 ? idx : 0);
+                if (idx >= 0)
+                    await _controller.PlayQueueAsync(DisplayedTracks, idx);
+                else
+                    await _controller.PlayQueueAsync(new[] { track }, 0);
                 RefreshQueue();
             }
         });
@@ -673,12 +1580,20 @@ public class MainViewModel : ViewModelBase, IDisposable
         PlayNextCommand = new RelayCommand(param =>
         {
             var track = param as Track ?? SelectedTrack ?? CurrentTrack;
-            if (track != null) _controller.PlayNext(track);
+            if (track != null)
+            {
+                _controller.PlayNext(track);
+                RefreshQueue();
+            }
         });
         AddToQueueCommand = new RelayCommand(param =>
         {
             var track = param as Track ?? SelectedTrack ?? CurrentTrack;
-            if (track != null) _controller.Enqueue(track);
+            if (track != null)
+            {
+                _controller.Enqueue(track);
+                RefreshQueue();
+            }
         });
         OpenFileLocationCommand = new RelayCommand(param =>
         {
@@ -981,7 +1896,7 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         PlaySavedPlaylistCommand = new RelayCommand(async param =>
         {
-            var playlist = param as Playlist ?? SelectedPlaylist;
+            var playlist = (param as PlaylistOverviewItem)?.Playlist ?? param as Playlist ?? SelectedPlaylist;
             if (playlist != null)
             {
                 var tracks = _db.GetTracksForPlaylist(playlist.Id);
@@ -995,38 +1910,152 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         DeleteSavedPlaylistCommand = new RelayCommand(param =>
         {
-            var playlist = param as Playlist ?? SelectedPlaylist;
+            var playlist = (param as PlaylistOverviewItem)?.Playlist ?? param as Playlist ?? SelectedPlaylist;
             if (playlist != null)
             {
-                var result = MessageBox.Show($"Hapus playlist \"{playlist.Name}\"?", "Konfirmasi Hapus", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                var result = MessageBox.Show($"Delete playlist \"{playlist.Name}\"?", "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (result == MessageBoxResult.Yes)
                 {
                     _db.DeletePlaylist(playlist.Id);
                     if (SelectedPlaylist?.Id == playlist.Id)
                     {
                         SelectedPlaylist = null;
+                        if (CurrentView == "PlaylistDetail")
+                        {
+                            CurrentView = "Playlists";
+                        }
                     }
                     LoadPlaylists();
                 }
             }
         });
 
+        OpenInfoForTrackCommand = new RelayCommand(param =>
+        {
+            // Explicit row/context-menu Track wins; otherwise globally inspect the currently playing track first!
+            var target = (param as QueueTrackItem)?.Track ?? param as Track ?? CurrentTrack ?? SelectedTrack;
+            PrepareInfoSheetForTrack(target);
+            Presentation.ActiveInfoTab = "Details";
+            Presentation.IsInfoSheetOpen = true;
+        });
+
         AddToPlaylistCommand = new RelayCommand(param =>
         {
-            var track = param as Track ?? SelectedTrack ?? CurrentTrack;
+            var track = (param as QueueTrackItem)?.Track ?? param as Track ?? SelectedTrack ?? CurrentTrack;
             if (track != null)
             {
-                var dlg = new AuraAudio.UI.Views.AddToPlaylistDialog(_db, track)
+                if (RequestOpenAddToPlaylist != null)
                 {
-                    Owner = Application.Current?.MainWindow
-                };
-                if (dlg.ShowDialog() == true)
+                    RequestOpenAddToPlaylist.Invoke(track);
+                }
+                else
                 {
                     LoadPlaylists();
-                    if (SelectedPlaylist != null)
-                    {
-                        LoadSelectedPlaylistTracks();
-                    }
+                    AddToPlaylistTargetTrack = track;
+                    IsAddToPlaylistSheetOpen = true;
+                }
+            }
+        });
+
+        AddTargetTrackToPlaylistCommand = new RelayCommand(param =>
+        {
+            var playlist = (param as PlaylistOverviewItem)?.Playlist ?? param as Playlist;
+            if (playlist != null && AddToPlaylistTargetTrack != null)
+            {
+                AddTrackToPlaylistById(playlist.Id, AddToPlaylistTargetTrack);
+                IsAddToPlaylistSheetOpen = false;
+                AddToPlaylistTargetTrack = null;
+            }
+        });
+
+        CreatePlaylistAndAddTargetTrackCommand = new RelayCommand(param =>
+        {
+            string name = (param as string)?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(name) || AddToPlaylistTargetTrack == null) return;
+            try
+            {
+                long newId = _db.CreatePlaylist(name, new[] { AddToPlaylistTargetTrack.Id });
+                LoadPlaylists();
+                SelectedPlaylist = SavedPlaylists.FirstOrDefault(p => p.Id == newId);
+                IsAddToPlaylistSheetOpen = false;
+                AddToPlaylistTargetTrack = null;
+            }
+            catch { }
+        });
+
+        CloseAddToPlaylistSheetCommand = new RelayCommand(() =>
+        {
+            IsAddToPlaylistSheetOpen = false;
+            AddToPlaylistTargetTrack = null;
+        });
+
+        ConfirmRenameSheetCommand = new RelayCommand(() =>
+        {
+            string committed = RenameSheetInputText?.Trim() ?? string.Empty;
+            var cb = _renameSheetCallback;
+            IsRenamePlaylistSheetOpen = false;
+            _renameSheetCallback = null;
+            if (!string.IsNullOrWhiteSpace(committed))
+            {
+                cb?.Invoke(committed);
+            }
+        });
+
+        CancelRenameSheetCommand = new RelayCommand(() =>
+        {
+            IsRenamePlaylistSheetOpen = false;
+            _renameSheetCallback = null;
+        });
+
+        ClearPlayHistoryCommand = new RelayCommand(() =>
+        {
+            try
+            {
+                _db.ClearPlayHistory();
+                _lastRecordedHistoryTrackId = -1;
+                _lastRecordedHistoryUtc = DateTime.MinValue;
+                PlayHistoryTracks.ReplaceAll(Array.Empty<Track>());
+                _ = Home.RefreshAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ClearPlayHistory Warning] {ex.Message}");
+            }
+        });
+
+        ImportLyricsFileCommand = new RelayCommand(async param =>
+        {
+            var target = (param as QueueTrackItem)?.Track
+                         ?? param as Track
+                         ?? (Presentation.IsInfoSheetOpen ? InfoTargetTrack : CurrentTrack)
+                         ?? CurrentTrack
+                         ?? SelectedTrack;
+            if (target == null) return;
+
+            bool isEn = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en";
+            var dlg = new OpenFileDialog
+            {
+                Title = isEn
+                    ? $"Import Lyrics for \"{target.Title}\""
+                    : $"Impor Lirik untuk \"{target.Title}\"",
+                Filter = isEn
+                    ? "Lyrics Files (*.lrc;*.txt)|*.lrc;*.txt|Synced LRC (*.lrc)|*.lrc|Plain Text (*.txt)|*.txt|All Files (*.*)|*.*"
+                    : "Berkas Lirik (*.lrc;*.txt)|*.lrc;*.txt|Lirik Tersinkron (*.lrc)|*.lrc|Teks Biasa (*.txt)|*.txt|Semua Berkas (*.*)|*.*"
+            };
+
+            if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.FileName))
+            {
+                try
+                {
+                    await ImportLyricsFromPathAsync(target, dlg.FileName);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        isEn ? $"Failed to import lyrics: {ex.Message}" : $"Gagal mengimpor lirik: {ex.Message}",
+                        isEn ? "Import Lyrics Error" : "Kesalahan Impor Lirik",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
                 }
             }
         });
@@ -1036,46 +2065,40 @@ public class MainViewModel : ViewModelBase, IDisposable
             string name = (param as string)?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(name))
             {
-                var dlg = new AuraAudio.UI.Views.RenamePlaylistDialog("Playlist Baru")
+                string sheetTitle = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en"
+                    ? "New Playlist"
+                    : "Buat Playlist Baru";
+                OpenRenameModalSheet("New Playlist", sheetTitle, newName =>
                 {
-                    Title = "Buat Playlist Baru - AuraAudio",
-                    Owner = Application.Current?.MainWindow
-                };
-                if (dlg.ShowDialog() == true)
-                {
-                    name = dlg.PlaylistName;
-                }
-                else return;
+                    if (!string.IsNullOrWhiteSpace(newName))
+                    {
+                        CreatePlaylistInternal(newName);
+                    }
+                });
+                return;
             }
 
-            try
-            {
-                long newId = _db.CreatePlaylist(name, Array.Empty<long>());
-                LoadPlaylists();
-                SelectedPlaylist = SavedPlaylists.FirstOrDefault(p => p.Id == newId);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Gagal membuat playlist: {ex.Message}", "Kesalahan", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            CreatePlaylistInternal(name);
         });
 
         RenamePlaylistCommand = new RelayCommand(param =>
         {
-            var playlist = param as Playlist ?? SelectedPlaylist;
+            var playlist = (param as PlaylistOverviewItem)?.Playlist ?? param as Playlist ?? SelectedPlaylist;
             if (playlist == null) return;
 
-            var dlg = new AuraAudio.UI.Views.RenamePlaylistDialog(playlist.Name)
+            string sheetTitle = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en"
+                ? "Rename Playlist"
+                : "Ubah Nama Playlist";
+            OpenRenameModalSheet(playlist.Name, sheetTitle, newName =>
             {
-                Owner = Application.Current?.MainWindow
-            };
-            if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.PlaylistName))
-            {
-                _db.RenamePlaylist(playlist.Id, dlg.PlaylistName);
-                long currentId = playlist.Id;
-                LoadPlaylists();
-                SelectedPlaylist = SavedPlaylists.FirstOrDefault(p => p.Id == currentId);
-            }
+                if (!string.IsNullOrWhiteSpace(newName))
+                {
+                    _db.RenamePlaylist(playlist.Id, newName);
+                    long currentId = playlist.Id;
+                    LoadPlaylists();
+                    SelectedPlaylist = SavedPlaylists.FirstOrDefault(p => p.Id == currentId);
+                }
+            });
         });
 
         PlaySelectedPlaylistTrackCommand = new RelayCommand(async param =>
@@ -1093,7 +2116,7 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         ShuffleSavedPlaylistCommand = new RelayCommand(async param =>
         {
-            var playlist = param as Playlist ?? SelectedPlaylist;
+            var playlist = (param as PlaylistOverviewItem)?.Playlist ?? param as Playlist ?? SelectedPlaylist;
             if (playlist != null)
             {
                 var tracks = _db.GetTracksForPlaylist(playlist.Id);
@@ -1129,9 +2152,118 @@ public class MainViewModel : ViewModelBase, IDisposable
         LoadAlbums();
         LoadArtists();
         LoadPlaylists();
+        RefreshPlayHistory();
+        Search.RefreshBrowseBricks();
+        _ = Home.RefreshAsync();
 
         // Pulihkan sesi pemutaran & antrean sebelumnya (Auto-restore)
         RestoreSession();
+    }
+
+    public void PrepareInfoSheetForTrack(Track? track)
+    {
+        var target = track ?? CurrentTrack;
+        var previousInspectedPath = _inspectedTrack?.FilePath;
+        InfoTargetTrack = target;
+        OnPropertyChanged(nameof(IsInfoTargetCurrentTrack));
+        InfoTargetDetails = target != null ? AudioMetadataReader.ReadExtendedDetails(target) : TrackExtendedDetails.Empty;
+        if (target != null)
+        {
+            if (!string.Equals(previousInspectedPath, target.FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                CurrentIntegrityReport = null;
+                AnalysisErrorMessage = string.Empty;
+            }
+            InspectedTrack = target;
+
+            var parsed = LyricsParser.LoadForFile(target.FilePath);
+            ApplyInfoLyricsResult(parsed);
+        }
+        else
+        {
+            ApplyInfoLyricsResult(ParsedLyricsResult.Empty);
+        }
+    }
+
+    public async Task<ParsedLyricsResult> ImportLyricsFromPathAsync(Track target, string sourceLyricsPath)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceLyricsPath);
+
+        var parsed = await Task.Run(() => LyricsParser.ImportSidecarLyrics(target.FilePath, sourceLyricsPath));
+
+        if (InfoTargetTrack != null &&
+            string.Equals(InfoTargetTrack.FilePath, target.FilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            ApplyInfoLyricsResult(parsed);
+        }
+
+        if (CurrentTrack != null &&
+            string.Equals(CurrentTrack.FilePath, target.FilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            Lyrics.ApplyParsedResult(parsed);
+            if (parsed.IsSynced)
+            {
+                Lyrics.UpdatePlaybackPosition(CurrentTime);
+            }
+        }
+
+        return parsed;
+    }
+
+    private void ApplyInfoLyricsResult(ParsedLyricsResult parsed)
+    {
+        if (parsed != null && parsed.HasLyrics)
+        {
+            InfoTargetLyricsSource = parsed.Source switch
+            {
+                LyricsSourceKind.SidecarLrc => "Synced · Sidecar .lrc",
+                LyricsSourceKind.EmbeddedLrc => "Synced · Embedded LRC",
+                LyricsSourceKind.Id3v2Sylt => "Synced · ID3v2 SYLT",
+                _ => "Unsynced Plain Text"
+            };
+            InfoTargetLyricsText = parsed.PlainText;
+            InfoTargetLyricsWriters = !string.IsNullOrWhiteSpace(parsed.Writers) && parsed.Writers.Trim() != "—"
+                ? $"Written by: {parsed.Writers.Trim()}"
+                : string.Empty;
+        }
+        else
+        {
+            InfoTargetLyricsSource = "No Lyrics";
+            InfoTargetLyricsText = string.Empty;
+            InfoTargetLyricsWriters = string.Empty;
+        }
+    }
+
+    private void OpenRenameModalSheet(string initialText, string title, Action<string> onConfirm)
+    {
+        if (RequestOpenRenamePlaylist != null)
+        {
+            RequestOpenRenamePlaylist.Invoke(initialText, title, onConfirm);
+            return;
+        }
+
+        RenameSheetTitle = title;
+        RenameSheetInputText = initialText;
+        _renameSheetCallback = onConfirm;
+        IsRenamePlaylistSheetOpen = true;
+    }
+
+    private void RefreshLibraryAfterSettingsMutation()
+    {
+        LoadLibrary();
+        LoadAlbums();
+        LoadArtists();
+        LoadPlaylists();
+        RefreshPlayHistory();
+        Search.RefreshBrowseBricks();
+        _ = Home.RefreshAsync();
+    }
+
+    private void RefreshAudioAfterSettingsMutation()
+    {
+        OutputDeviceName = _controller.CurrentDevice?.Name ?? "Default Endpoint";
+        RefreshSidebarDriverStatus();
     }
 
     private void CycleRepeatMode()
@@ -1192,7 +2324,6 @@ public class MainViewModel : ViewModelBase, IDisposable
         if (s.SignalPath != null)
         {
             SignalPathBadge = s.SignalPath.BadgeText;
-            SignalPathColorHex = s.SignalPath.BadgeColorHex;
             CurrentSignalPath = s.SignalPath;
         }
 
@@ -1241,6 +2372,33 @@ public class MainViewModel : ViewModelBase, IDisposable
             RefreshQueue();
         }
 
+        // Record play history when active playback begins on a new track
+        if (s.CurrentTrack != null && s.Status == PlaybackStatus.Playing)
+        {
+            var nowUtc = DateTime.UtcNow;
+            if (s.CurrentTrack.Id != _lastRecordedHistoryTrackId || (nowUtc - _lastRecordedHistoryUtc).TotalSeconds >= 30.0)
+            {
+                _lastRecordedHistoryTrackId = s.CurrentTrack.Id;
+                _lastRecordedHistoryUtc = nowUtc;
+                long playedTrackId = s.CurrentTrack.Id;
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        _db.RecordPlayHistory(playedTrackId);
+                        Application.Current?.Dispatcher.BeginInvoke(RefreshPlayHistory);
+                    }
+                    catch { }
+                });
+            }
+        }
+
+        if (trackChanged)
+        {
+            _ = Lyrics.LoadForTrackAsync(s.CurrentTrack);
+        }
+        Lyrics.UpdatePlaybackPosition(s.CurrentTime);
+
         // Sinkronisasi status dan metadata ke Windows 11 SMTC
         if (trackChanged || _lastKnownStatus != s.Status)
         {
@@ -1277,9 +2435,9 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             "Title" => IsSortAscending ? TrackSortOption.TitleAscending : TrackSortOption.TitleDescending,
             "Artist" => TrackSortOption.ArtistDiscography,
-            "Album" => TrackSortOption.ArtistDiscography,
-            "Duration" => TrackSortOption.TitleAscending,
-            "Format" => TrackSortOption.HiResFirst,
+            "Album" => IsSortAscending ? TrackSortOption.AlbumAscending : TrackSortOption.AlbumDescending,
+            "Duration" => IsSortAscending ? TrackSortOption.DurationAscending : TrackSortOption.DurationDescending,
+            "Format" => IsSortAscending ? TrackSortOption.HiResFirst : TrackSortOption.FormatAscending,
             _ => TrackSortOption.TitleAscending
         };
 
@@ -1288,13 +2446,10 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public void LoadLibrary()
     {
-        var tracks = _db.GetSortedTracks(_currentSortOption, limit: 1000);
-        DisplayedTracks.Clear();
-
-        foreach (var t in tracks)
-        {
-            DisplayedTracks.Add(t);
-        }
+        var tracks = _db.GetSortedTracks(_currentSortOption, limit: 10000, offset: 0, filter: _searchQuery);
+        _allLoadedTracksCache = tracks;
+        RebuildColumnBrowserOptions();
+        ApplyColumnBrowserFilter();
 
         _totalTracksCount = _db.GetTrackCount();
         OnPropertyChanged(nameof(IsLibraryEmpty));
@@ -1302,6 +2457,151 @@ public class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(EmptyLibraryTitle));
         OnPropertyChanged(nameof(EmptyLibraryDesc));
         UpdateLibraryStatsText();
+    }
+
+    private void RebuildColumnBrowserOptions()
+    {
+        var formats = new List<string> { "All Formats" };
+        if (_allLoadedTracksCache.Any(t => t.StreamSpec.IsHiRes))
+        {
+            formats.Add("Hi-Res Lossless");
+        }
+        formats.AddRange(
+            _allLoadedTracksCache
+                .Select(t => t.StreamSpec.Codec.ToString())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(c => c, StringComparer.OrdinalIgnoreCase));
+        ColumnBrowserFormats.ReplaceAll(formats);
+        if (!formats.Any(x => string.Equals(x, _selectedBrowserFormat, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedBrowserFormat = "All Formats";
+            OnPropertyChanged(nameof(SelectedBrowserFormat));
+        }
+        RebuildColumnBrowserArtistsAndAlbums();
+    }
+
+    private IEnumerable<Track> FilterTracksByFormat(IEnumerable<Track> source)
+    {
+        if (string.Equals(_selectedBrowserFormat, "All Formats", StringComparison.OrdinalIgnoreCase))
+            return source;
+        if (string.Equals(_selectedBrowserFormat, "Hi-Res Lossless", StringComparison.OrdinalIgnoreCase))
+            return source.Where(t => t.StreamSpec.IsHiRes);
+        return source.Where(t => string.Equals(t.StreamSpec.Codec.ToString(), _selectedBrowserFormat, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void RebuildColumnBrowserArtistsAndAlbums()
+    {
+        var byFormat = FilterTracksByFormat(_allLoadedTracksCache).ToList();
+        var artists = new List<string> { "All Artists" };
+        artists.AddRange(
+            byFormat
+                .Select(t => t.Artist)
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(a => a, StringComparer.OrdinalIgnoreCase));
+        ColumnBrowserArtists.ReplaceAll(artists);
+        if (!artists.Any(x => string.Equals(x, _selectedBrowserArtist, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedBrowserArtist = "All Artists";
+            OnPropertyChanged(nameof(SelectedBrowserArtist));
+        }
+        RebuildColumnBrowserAlbums();
+    }
+
+    private void RebuildColumnBrowserAlbums()
+    {
+        var query = FilterTracksByFormat(_allLoadedTracksCache);
+        if (!string.Equals(_selectedBrowserArtist, "All Artists", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(t => string.Equals(t.Artist, _selectedBrowserArtist, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var albums = new List<string> { "All Albums" };
+        albums.AddRange(
+            query
+                .Select(t => t.Album)
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(a => a, StringComparer.OrdinalIgnoreCase));
+        ColumnBrowserAlbums.ReplaceAll(albums);
+        if (!albums.Any(x => string.Equals(x, _selectedBrowserAlbum, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedBrowserAlbum = "All Albums";
+            OnPropertyChanged(nameof(SelectedBrowserAlbum));
+        }
+    }
+
+    private void ApplyColumnBrowserFilter()
+    {
+        IEnumerable<Track> filtered = FilterTracksByFormat(_allLoadedTracksCache);
+        if (!string.Equals(_selectedBrowserArtist, "All Artists", StringComparison.OrdinalIgnoreCase))
+        {
+            filtered = filtered.Where(t => string.Equals(t.Artist, _selectedBrowserArtist, StringComparison.OrdinalIgnoreCase));
+        }
+        if (!string.Equals(_selectedBrowserAlbum, "All Albums", StringComparison.OrdinalIgnoreCase))
+        {
+            filtered = filtered.Where(t => string.Equals(t.Album, _selectedBrowserAlbum, StringComparison.OrdinalIgnoreCase));
+        }
+
+        DisplayedTracks.ReplaceAll(filtered.ToList());
+        OnPropertyChanged(nameof(IsLibraryEmpty));
+    }
+
+    /// <summary>
+    /// Memperbarui metadata mendalam (Credits, Mastering Specs, Lyrics) serta kartu profil artis
+    /// untuk panggung Now Playing Music Detail Stage (Apple Music Monochrome InfoPanelControl).
+    /// </summary>
+    public void RefreshCurrentTrackExtendedContext()
+    {
+        var track = _currentTrack;
+        if (track == null)
+        {
+            CurrentTrackDetails = TrackExtendedDetails.Empty;
+            CurrentTrackArtistName = "—";
+            CurrentTrackArtistSummary = string.Empty;
+            CurrentTrackArtistInitials = "♪";
+            CurrentTrackArtistCoverKey = null;
+            if (CurrentTrackArtistTopTracks.Count > 0)
+            {
+                CurrentTrackArtistTopTracks.ReplaceAll(Array.Empty<Track>());
+            }
+            return;
+        }
+
+        CurrentTrackDetails = AudioMetadataReader.ReadExtendedDetails(track);
+
+        var parsedArtists = ArtistParser.ParseArtists(track.Artist);
+        string primaryArtist = parsedArtists.Count > 0 ? parsedArtists[0] : track.Artist;
+        CurrentTrackArtistName = primaryArtist;
+
+        var parts = primaryArtist.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        CurrentTrackArtistInitials = parts.Length >= 2
+            ? $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[1][0])}"
+            : (primaryArtist.Length > 0 ? char.ToUpperInvariant(primaryArtist[0]).ToString() : "♪");
+
+        try
+        {
+            var artistTracks = _db.GetTracksByArtist(primaryArtist);
+            int albumCount = artistTracks.Select(t => t.Album).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            bool hasHiRes = artistTracks.Any(t => t.StreamSpec.IsHiRes);
+            CurrentTrackArtistCoverKey = artistTracks.FirstOrDefault(t => !string.IsNullOrEmpty(t.CoverArtCacheKey))?.CoverArtCacheKey
+                                         ?? track.CoverArtCacheKey;
+
+            bool isEn = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en";
+            string hiResTag = hasHiRes ? (isEn ? " • Hi-Res Lossless" : " • Hi-Res Lossless") : string.Empty;
+            CurrentTrackArtistSummary = isEn
+                ? $"{Math.Max(1, albumCount)} {(albumCount == 1 ? "Album" : "Albums")} • {Math.Max(1, artistTracks.Count)} {(artistTracks.Count == 1 ? "Track" : "Tracks")} in Library{hiResTag}"
+                : $"{Math.Max(1, albumCount)} Album • {Math.Max(1, artistTracks.Count)} Lagu di Pustaka{hiResTag}";
+
+            var topTracks = artistTracks.Take(6).ToList();
+            CurrentTrackArtistTopTracks.ReplaceAll(topTracks);
+        }
+        catch
+        {
+            CurrentTrackArtistCoverKey = track.CoverArtCacheKey;
+            CurrentTrackArtistSummary = track.Album;
+            CurrentTrackArtistTopTracks.ReplaceAll(new[] { track });
+        }
     }
 
     public void RefreshSidebarDriverStatus()
@@ -1314,13 +2614,36 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             SidebarDriverTitle = "WASAPI Shared";
             SidebarDriverSubtitle = isEn ? "Windows Audio Mixer" : "Lewat Mixer Windows";
-            SidebarDriverColorHex = "#FBBF24";
+            IsExclusiveDriverActive = false;
         }
         else
         {
             SidebarDriverTitle = "WASAPI Exclusive";
             SidebarDriverSubtitle = isEn ? "Bit-Perfect Direct Out" : "Jalur Bit-Perfect Langsung";
-            SidebarDriverColorHex = "#34D399";
+            IsExclusiveDriverActive = true;
+        }
+    }
+
+    public void RefreshPlaylistsAfterMutation()
+    {
+        LoadPlaylists();
+        if (SelectedPlaylist != null)
+        {
+            LoadSelectedPlaylistTracks();
+        }
+    }
+
+    private void CreatePlaylistInternal(string name)
+    {
+        try
+        {
+            long newId = _db.CreatePlaylist(name, Array.Empty<long>());
+            LoadPlaylists();
+            SelectedPlaylist = SavedPlaylists.FirstOrDefault(p => p.Id == newId);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Gagal membuat playlist: {ex.Message}", "Kesalahan", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -1332,24 +2655,34 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public void LoadAlbums()
     {
-        var albums = _db.GetAlbums();
-        DisplayedAlbums.Clear();
+        IEnumerable<Album> albums = _albumSortMode == "RecentlyAdded"
+            ? _db.GetRecentlyAddedAlbums(500)
+            : _db.GetAlbums(string.IsNullOrWhiteSpace(_albumFilterQuery) ? null : _albumFilterQuery);
 
-        foreach (var a in albums)
+        if (_albumSortMode == "RecentlyAdded" && !string.IsNullOrWhiteSpace(_albumFilterQuery))
         {
-            DisplayedAlbums.Add(a);
+            string q = _albumFilterQuery.Trim();
+            albums = albums.Where(a =>
+                a.Title.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                a.Artist.Contains(q, StringComparison.OrdinalIgnoreCase));
         }
+
+        albums = _albumSortMode switch
+        {
+            "Artist" => albums.OrderBy(a => a.Artist, StringComparer.OrdinalIgnoreCase).ThenBy(a => a.Title, StringComparer.OrdinalIgnoreCase),
+            "Year" => albums.OrderByDescending(a => a.Year ?? 0).ThenBy(a => a.Title, StringComparer.OrdinalIgnoreCase),
+            "HiResFirst" => albums.OrderByDescending(a => a.IsHiRes).ThenBy(a => a.Title, StringComparer.OrdinalIgnoreCase),
+            "RecentlyAdded" => albums,
+            _ => albums.OrderBy(a => a.Title, StringComparer.OrdinalIgnoreCase)
+        };
+
+        DisplayedAlbums.ReplaceAll(albums.ToList());
     }
 
     public void LoadArtists(string? filter = null)
     {
         var artists = _db.GetArtists(filter);
-        DisplayedArtists.Clear();
-
-        foreach (var a in artists)
-        {
-            DisplayedArtists.Add(a);
-        }
+        DisplayedArtists.ReplaceAll(artists);
     }
 
     /// <summary>
@@ -1364,23 +2697,18 @@ public class MainViewModel : ViewModelBase, IDisposable
         IsArtistDetailView = true;
 
         var albums = _db.GetAlbumsByArtist(artist.Name);
-        ArtistAlbums.Clear();
-        foreach (var a in albums)
-        {
-            ArtistAlbums.Add(a);
-        }
+        ArtistAlbums.ReplaceAll(albums);
 
         var tracks = _db.GetTracksByArtist(artist.Name);
-        ArtistTracks.Clear();
+        ArtistTracks.ReplaceAll(tracks);
         long totalDurMs = 0;
-        foreach (var t in tracks)
+        for (int i = 0; i < tracks.Count; i++)
         {
-            ArtistTracks.Add(t);
-            totalDurMs += (long)t.Duration.TotalMilliseconds;
+            totalDurMs += (long)tracks[i].Duration.TotalMilliseconds;
         }
 
         // Kelompokkan trek per album untuk gaya Apple Music
-        ArtistAlbumGroups.Clear();
+        var groups = new List<ArtistAlbumGroup>();
         var albumTrackMap = new Dictionary<string, List<Track>>(StringComparer.OrdinalIgnoreCase);
         foreach (var t in tracks)
         {
@@ -1399,7 +2727,7 @@ public class MainViewModel : ViewModelBase, IDisposable
             if (albumTrackMap.TryGetValue(alb.Title, out var matchedTracks) && matchedTracks.Count > 0)
             {
                 matchedAlbumTitles.Add(alb.Title);
-                ArtistAlbumGroups.Add(new ArtistAlbumGroup(alb, matchedTracks));
+                groups.Add(new ArtistAlbumGroup(alb, matchedTracks));
             }
             else
             {
@@ -1407,7 +2735,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                 if (dbAlbumTracks.Count > 0)
                 {
                     matchedAlbumTitles.Add(alb.Title);
-                    ArtistAlbumGroups.Add(new ArtistAlbumGroup(alb, dbAlbumTracks));
+                    groups.Add(new ArtistAlbumGroup(alb, dbAlbumTracks));
                 }
             }
         }
@@ -1427,15 +2755,125 @@ public class MainViewModel : ViewModelBase, IDisposable
                     isHiRes: kvp.Value.Any(x => x.StreamSpec.IsHiRes),
                     coverArtCacheKey: kvp.Value.FirstOrDefault(x => !string.IsNullOrEmpty(x.CoverArtCacheKey))?.CoverArtCacheKey
                 );
-                ArtistAlbumGroups.Add(new ArtistAlbumGroup(fallbackAlbum, kvp.Value));
+                groups.Add(new ArtistAlbumGroup(fallbackAlbum, kvp.Value));
             }
         }
+        ArtistAlbumGroups.ReplaceAll(groups);
+        ArtistFeaturedTracks.ReplaceAll(tracks.Take(8).ToList());
+        ArtistLatestRelease = albums
+            .OrderByDescending(a => a.Year ?? 0)
+            .ThenByDescending(a => a.TrackCount)
+            .FirstOrDefault() ?? groups.FirstOrDefault()?.Album;
 
         var totalSpan = TimeSpan.FromMilliseconds(totalDurMs);
+        ArtistTotalRuntimeText = totalSpan.TotalHours >= 1
+            ? $"{(int)totalSpan.TotalHours} hr {totalSpan.Minutes} min"
+            : $"{Math.Max(1, (int)Math.Round(totalSpan.TotalMinutes))} min";
+
+        var distinctCodecs = tracks
+            .Select(t => t.StreamSpec.Codec.ToString())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        ArtistFormatsSummary = distinctCodecs.Count > 0 ? string.Join(", ", distinctCodecs) : "--";
+
+        int hiResCount = tracks.Count(t => t.StreamSpec.IsHiRes);
+        ArtistHiResSummaryText = hiResCount > 0
+            ? $"{hiResCount} of {tracks.Count} tracks Hi-Res"
+            : "Standard Lossless / PCM";
+
         bool isEn = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en";
         ArtistStatsSummary = isEn
             ? $"{albums.Count} {(albums.Count == 1 ? "Album" : "Albums")} • {tracks.Count} {(tracks.Count == 1 ? "Track" : "Tracks")} • {(int)totalSpan.TotalMinutes} min"
             : $"{albums.Count} Album • {tracks.Count} Lagu • {(int)totalSpan.TotalMinutes} Menit";
+    }
+
+    private NavigationEntry CaptureNavigationEntry(string route) =>
+        new(route, SelectedAlbumDetail, SelectedArtist, SelectedPlaylist);
+
+    private void RestoreNavigationEntry(NavigationEntry entry)
+    {
+        _isHistoryNavigating = true;
+        try
+        {
+            if (entry.Route == "AlbumDetail" && entry.Album != null)
+            {
+                LoadAlbumDetailData(entry.Album);
+            }
+            else if ((entry.Route == "ArtistDetail" || entry.Route == "Artists") && entry.Artist != null)
+            {
+                ViewArtistDetail(entry.Artist);
+            }
+            else if (entry.Route == "PlaylistDetail" && entry.Playlist != null)
+            {
+                SelectedPlaylist = entry.Playlist;
+            }
+
+            CurrentView = entry.Route;
+        }
+        finally
+        {
+            _isHistoryNavigating = false;
+        }
+        NotifyBreadcrumbChanged();
+    }
+
+    public void OpenArtistDetailPage(Artist artist)
+    {
+        ArgumentNullException.ThrowIfNull(artist);
+
+        if (!(_currentView == "ArtistDetail" && SelectedArtist != null &&
+              string.Equals(SelectedArtist.Name, artist.Name, StringComparison.OrdinalIgnoreCase)))
+        {
+            _backStack.Push(CaptureNavigationEntry(_currentView));
+            _forwardStack.Clear();
+        }
+
+        _isHistoryNavigating = true;
+        try
+        {
+            if (CurrentView != "ArtistDetail")
+            {
+                PreviousView = CurrentView;
+            }
+            ViewArtistDetail(artist);
+            CurrentView = "ArtistDetail";
+        }
+        finally
+        {
+            _isHistoryNavigating = false;
+        }
+        NotifyBreadcrumbChanged();
+    }
+
+    private void LoadAlbumDetailData(Album album)
+    {
+        SelectedAlbumDetail = album;
+
+        var tracks = _db.GetTracksByAlbum(album.Title, album.Artist);
+        SelectedAlbumDetailTracks.ReplaceAll(tracks);
+        long totalDurMs = 0;
+        for (int i = 0; i < tracks.Count; i++)
+        {
+            totalDurMs += (long)tracks[i].Duration.TotalMilliseconds;
+        }
+
+        var totalSpan = TimeSpan.FromMilliseconds(totalDurMs);
+        string yearText = album.Year.HasValue && album.Year.Value > 0 ? $"{album.Year.Value} • " : string.Empty;
+        string runtimeText = totalSpan.TotalHours >= 1
+            ? $"{(int)totalSpan.TotalHours} hr {totalSpan.Minutes} min"
+            : $"{Math.Max(1, (int)Math.Round(totalSpan.TotalMinutes))} min";
+
+        var primarySpec = tracks
+            .OrderByDescending(t => t.StreamSpec.SampleRateHz)
+            .ThenByDescending(t => (int)t.StreamSpec.BitDepth)
+            .FirstOrDefault()?.StreamSpec;
+
+        AlbumDetailAudioBadge = primarySpec?.FormattedBadge ?? string.Empty;
+        AlbumDetailSummaryText = $"{yearText}{tracks.Count} {(tracks.Count == 1 ? "song" : "songs")}, {runtimeText}";
+        AlbumDetailFooterText = !string.IsNullOrEmpty(AlbumDetailAudioBadge)
+            ? $"{tracks.Count} {(tracks.Count == 1 ? "song" : "songs")}, {runtimeText} • {AlbumDetailAudioBadge}"
+            : $"{tracks.Count} {(tracks.Count == 1 ? "song" : "songs")}, {runtimeText}";
     }
 
     /// <summary>
@@ -1445,30 +2883,29 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         ArgumentNullException.ThrowIfNull(album);
 
-        if (CurrentView != "AlbumDetail")
+        if (!(_currentView == "AlbumDetail" && SelectedAlbumDetail != null &&
+              string.Equals(SelectedAlbumDetail.Title, album.Title, StringComparison.OrdinalIgnoreCase) &&
+              string.Equals(SelectedAlbumDetail.Artist, album.Artist, StringComparison.OrdinalIgnoreCase)))
         {
-            PreviousView = CurrentView;
+            _backStack.Push(CaptureNavigationEntry(_currentView));
+            _forwardStack.Clear();
         }
 
-        SelectedAlbumDetail = album;
-
-        var tracks = _db.GetTracksByAlbum(album.Title, album.Artist);
-        SelectedAlbumDetailTracks.Clear();
-        long totalDurMs = 0;
-        foreach (var t in tracks)
+        _isHistoryNavigating = true;
+        try
         {
-            SelectedAlbumDetailTracks.Add(t);
-            totalDurMs += (long)t.Duration.TotalMilliseconds;
+            if (CurrentView != "AlbumDetail")
+            {
+                PreviousView = CurrentView;
+            }
+            LoadAlbumDetailData(album);
+            CurrentView = "AlbumDetail";
         }
-
-        var totalSpan = TimeSpan.FromMilliseconds(totalDurMs);
-        string yearText = album.Year.HasValue && album.Year.Value > 0 ? $"{album.Year.Value} • " : string.Empty;
-        bool isEn = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en";
-        AlbumDetailSummaryText = isEn
-            ? $"{yearText}{tracks.Count} {(tracks.Count == 1 ? "Track" : "Tracks")} • {(int)totalSpan.TotalMinutes} min"
-            : $"{yearText}{tracks.Count} Lagu • {(int)totalSpan.TotalMinutes} Menit";
-
-        CurrentView = "AlbumDetail";
+        finally
+        {
+            _isHistoryNavigating = false;
+        }
+        NotifyBreadcrumbChanged();
     }
 
     private void RestoreHardwareSettings()
@@ -1506,13 +2943,50 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private void ScheduleFilterData()
+    {
+        _searchDebounceCts?.Cancel();
+        _searchDebounceCts?.Dispose();
+        _searchDebounceCts = null;
+
+        // Eksekusi langsung jika kata kunci dikosongkan atau berjalan di lingkungan unit test tanpa Dispatcher aktif
+        if (string.IsNullOrWhiteSpace(_searchQuery) || Application.Current == null)
+        {
+            FilterData();
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _searchDebounceCts = cts;
+        var token = cts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(65, token).ConfigureAwait(false);
+                if (token.IsCancellationRequested) return;
+
+                Application.Current?.Dispatcher.BeginInvoke(() =>
+                {
+                    if (!token.IsCancellationRequested)
+                    {
+                        FilterData();
+                    }
+                });
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, token);
+    }
+
     private void FilterData()
     {
         if (CurrentView == "Albums")
         {
             var albums = _db.GetAlbums(SearchQuery);
-            DisplayedAlbums.Clear();
-            foreach (var a in albums) DisplayedAlbums.Add(a);
+            DisplayedAlbums.ReplaceAll(albums);
         }
         else if (CurrentView == "Artists")
         {
@@ -1520,19 +2994,8 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
         else
         {
-            var all = _db.GetSortedTracks(_currentSortOption, limit: 1000);
-            DisplayedTracks.Clear();
-
-            var filtered = string.IsNullOrWhiteSpace(SearchQuery)
-                ? all
-                : all.Where(t => t.Title.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) ||
-                                 t.Artist.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) ||
-                                 t.Album.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase));
-
-            foreach (var t in filtered)
-            {
-                DisplayedTracks.Add(t);
-            }
+            var filtered = _db.GetSortedTracks(_currentSortOption, limit: 1000, offset: 0, filter: SearchQuery);
+            DisplayedTracks.ReplaceAll(filtered);
             OnPropertyChanged(nameof(IsLibraryEmpty));
             OnPropertyChanged(nameof(IsLibraryZeroTracks));
             OnPropertyChanged(nameof(EmptyLibraryTitle));
@@ -1629,39 +3092,118 @@ public class MainViewModel : ViewModelBase, IDisposable
     public void RefreshQueue()
     {
         var items = _controller.Playlist;
-        QueueTracks.Clear();
+        var built = new List<QueueTrackItem>(items.Count);
         long totalDurMs = 0;
         for (int i = 0; i < items.Count; i++)
         {
             var t = items[i];
-            bool isCurrent = (i == _controller.CurrentIndex);
-            QueueTracks.Add(new QueueTrackItem(i + 1, t, isCurrent));
+            bool isCurrent = _controller.CurrentTrack != null
+                ? string.Equals(t.FilePath, _controller.CurrentTrack.FilePath, StringComparison.OrdinalIgnoreCase)
+                : (i == _controller.CurrentIndex);
+            built.Add(new QueueTrackItem(i + 1, t, isCurrent));
             totalDurMs += (long)t.Duration.TotalMilliseconds;
         }
+        QueueTracks.ReplaceAll(built);
 
         CurrentQueueIndex = _controller.CurrentIndex;
+        OnPropertyChanged(nameof(QueueCount));
         var span = TimeSpan.FromMilliseconds(totalDurMs);
         bool isEn = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en";
         QueueSummaryText = items.Count > 0
             ? (isEn
-                ? $"{items.Count} {(items.Count == 1 ? "Track" : "Tracks")} • {(int)span.TotalMinutes} min • Active Queue"
-                : $"{items.Count} Lagu • {(int)span.TotalMinutes} Menit • Antrean Aktif")
+                ? $"{items.Count} {(items.Count == 1 ? "Track" : "Tracks")} • {(int)span.TotalMinutes} min"
+                : $"{items.Count} Lagu • {(int)span.TotalMinutes} Menit")
             : (isEn
-                ? "Queue is empty • Pick a track to start listening"
-                : "Antrean kosong • Pilih lagu untuk mulai mendengarkan");
+                ? "Queue is empty"
+                : "Antrean kosong");
     }
 
     /// <summary>
-    /// Memuat seluruh playlist tersimpan dari database.
+    /// Refreshes recently played history from SQLite play_history table.
+    /// </summary>
+    public void RefreshPlayHistory()
+    {
+        try
+        {
+            var recent = _db.GetRecentPlayHistory(50);
+            PlayHistoryTracks.ReplaceAll(recent);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Adds a track directly to a target playlist (used by sidebar playlist drop targets).
+    /// </summary>
+    public void AddTrackToPlaylistById(long playlistId, Track track)
+    {
+        if (playlistId <= 0 || track == null || track.Id <= 0) return;
+        try
+        {
+            _db.AddTrackToPlaylist(playlistId, track.Id);
+            RefreshPlaylistsAfterMutation();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AddTrackToPlaylistById Warning] {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Adds multiple tracks directly to a target playlist (multi-select drag-drop).
+    /// </summary>
+    public void AddTracksToPlaylistById(long playlistId, IEnumerable<Track> tracks)
+    {
+        if (playlistId <= 0 || tracks == null) return;
+        try
+        {
+            bool changed = false;
+            foreach (var track in tracks)
+            {
+                if (track != null && track.Id > 0)
+                {
+                    _db.AddTrackToPlaylist(playlistId, track.Id);
+                    changed = true;
+                }
+            }
+            if (changed) RefreshPlaylistsAfterMutation();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AddTracksToPlaylistById Warning] {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Adds all tracks of an album directly to a target playlist (album tile drag-drop).
+    /// </summary>
+    public void AddAlbumToPlaylistById(long playlistId, Album album)
+    {
+        if (playlistId <= 0 || album == null) return;
+        var albumTracks = _db.GetTracksByAlbum(album.Title, album.Artist);
+        AddTracksToPlaylistById(playlistId, albumTracks);
+    }
+
+    /// <summary>
+    /// Memuat seluruh playlist tersimpan dari database beserta cover art asli untuk overview grid.
     /// </summary>
     public void LoadPlaylists()
     {
         var list = _db.GetPlaylists();
-        SavedPlaylists.Clear();
-        foreach (var p in list)
+        SavedPlaylists.ReplaceAll(list);
+
+        var cards = new List<PlaylistOverviewItem>(list.Count);
+        foreach (var pl in list)
         {
-            SavedPlaylists.Add(p);
+            string? coverKey = null;
+            try
+            {
+                var plTracks = _db.GetTracksForPlaylist(pl.Id);
+                coverKey = plTracks.FirstOrDefault(t => !string.IsNullOrEmpty(t.CoverArtCacheKey))?.CoverArtCacheKey;
+            }
+            catch { }
+            cards.Add(new PlaylistOverviewItem(pl, coverKey));
         }
+        SavedPlaylistCards.ReplaceAll(cards);
     }
 
     /// <summary>
@@ -1669,19 +3211,21 @@ public class MainViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void LoadSelectedPlaylistTracks()
     {
-        SelectedPlaylistTracks.Clear();
         if (_selectedPlaylist == null)
         {
+            SelectedPlaylistTracks.ReplaceAll(Array.Empty<Track>());
             SelectedPlaylistSummaryText = string.Empty;
+            SelectedPlaylistCoverKey = null;
             return;
         }
 
         var tracks = _db.GetTracksForPlaylist(_selectedPlaylist.Id);
+        SelectedPlaylistTracks.ReplaceAll(tracks);
+        SelectedPlaylistCoverKey = tracks.FirstOrDefault(t => !string.IsNullOrEmpty(t.CoverArtCacheKey))?.CoverArtCacheKey;
         long totalDurMs = 0;
-        foreach (var t in tracks)
+        for (int i = 0; i < tracks.Count; i++)
         {
-            SelectedPlaylistTracks.Add(t);
-            totalDurMs += (long)t.Duration.TotalMilliseconds;
+            totalDurMs += (long)tracks[i].Duration.TotalMilliseconds;
         }
 
         var span = TimeSpan.FromMilliseconds(totalDurMs);
@@ -1733,6 +3277,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                         {
                             CurrentTrack = _controller.CurrentTrack;
                             ActivePlayingTrackId = _controller.CurrentTrack.Id;
+                            _ = Lyrics.LoadForTrackAsync(_controller.CurrentTrack);
                         }
                     });
                 }
@@ -1744,9 +3289,17 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private bool _isDisposed;
+
     public void Dispose()
     {
+        if (_isDisposed) return;
+        _isDisposed = true;
+
         SaveSession();
+        Settings.HardwareConfig.Cleanup();
+        _searchDebounceCts?.Cancel();
+        _searchDebounceCts?.Dispose();
         _cts.Cancel();
         _cts.Dispose();
         _controller.Dispose();

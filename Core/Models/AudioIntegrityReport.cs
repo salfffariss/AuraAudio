@@ -168,23 +168,6 @@ public record AudioIntegrityReport
     }
 
     /// <summary>
-    /// Kode warna heksadesimal terkalibrasi WCAG AA (selalu dipasangkan dengan ikon dan teks).
-    /// </summary>
-    public string VerdictColorHex => Verdict switch
-    {
-        AuthenticityVerdict.VerifiedLossless => "#34D399",
-        AuthenticityVerdict.AcousticNaturalRollOff => "#34D399",
-        AuthenticityVerdict.HybridMaster => "#93C5FD",
-        AuthenticityVerdict.UpscaledFromCd => "#FBBF24",
-        AuthenticityVerdict.Dithered16BitUpscale => "#FBBF24",
-        AuthenticityVerdict.ZeroPadded24Bit => "#FBBF24",
-        AuthenticityVerdict.SuspectedUpscaledLossy => "#F87171",
-        AuthenticityVerdict.StandardLossy => "#B8B4AA",
-        AuthenticityVerdict.Inconclusive => "#B8B4AA",
-        _ => "#949087"
-    };
-
-    /// <summary>
     /// Deskripsi kedalaman bit yang jelas untuk manusia.
     /// </summary>
     public string BitDepthDescription
@@ -408,16 +391,6 @@ public record AudioIntegrityReport
                 return en ? "Exclusive Mode (Format Adapted)" : "Exclusive (Format Disesuaikan)";
             }
             return en ? "Shared Mixer / Resampling" : "Lewat Mixer Windows / Resampling";
-        }
-    }
-
-    public string SpecOutputColorHex
-    {
-        get
-        {
-            if (!HasActiveHardwarePath) return "#B8B4AA";
-            if (IsBitPerfect) return "#34D399";
-            return "#FBBF24";
         }
     }
 

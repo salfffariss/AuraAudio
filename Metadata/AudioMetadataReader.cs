@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
@@ -35,6 +37,108 @@ public class AudioMetadataReader
         @"^(\d{1,3})\s*[-._\s]\s*(.+)$",
         RegexOptions.Compiled
     );
+
+    private static readonly ConcurrentDictionary<string, TrackExtendedDetails> ExtendedDetailsCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Mengekstrak metadata mendalam (Composer, Conductor, Genre, Copyright, Bitrate, Lyrics)
+    /// secara on-demand untuk halaman Now Playing Music Detail Stage dengan L1 RAM Cache.
+    /// </summary>
+    public static TrackExtendedDetails ReadExtendedDetails(Track? track)
+    {
+        if (track == null) return TrackExtendedDetails.Empty;
+
+        if (ExtendedDetailsCache.TryGetValue(track.FilePath, out var cached))
+        {
+            return cached;
+        }
+
+        var fallback = TrackExtendedDetails.FromTrackFallback(track);
+        if (!System.IO.File.Exists(track.FilePath))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            using var tagFile = TagLib.File.Create(track.FilePath);
+            var tag = tagFile.Tag;
+            var props = tagFile.Properties;
+
+            string performers = !string.IsNullOrWhiteSpace(tag.JoinedPerformers)
+                ? tag.JoinedPerformers.Trim()
+                : fallback.Performers;
+
+            string albumArtist = !string.IsNullOrWhiteSpace(tag.JoinedAlbumArtists)
+                ? tag.JoinedAlbumArtists.Trim()
+                : fallback.AlbumArtist;
+
+            string composer = !string.IsNullOrWhiteSpace(tag.JoinedComposers)
+                ? tag.JoinedComposers.Trim()
+                : "—";
+
+            string conductor = !string.IsNullOrWhiteSpace(tag.Conductor)
+                ? tag.Conductor.Trim()
+                : "—";
+
+            string genre = !string.IsNullOrWhiteSpace(tag.JoinedGenres)
+                ? tag.JoinedGenres.Trim()
+                : "—";
+
+            string copyright = !string.IsNullOrWhiteSpace(tag.Copyright)
+                ? tag.Copyright.Trim()
+                : (!string.IsNullOrWhiteSpace(tag.Publisher)
+                    ? tag.Publisher.Trim()
+                    : (!string.IsNullOrWhiteSpace(tag.Comment) ? tag.Comment.Trim() : "—"));
+
+            int yearVal = tag.Year > 0 ? (int)tag.Year : (track.Year ?? 0);
+            string yearText = yearVal > 0 ? yearVal.ToString(CultureInfo.InvariantCulture) : "—";
+
+            int trackNo = tag.Track > 0 ? (int)tag.Track : Math.Max(1, track.TrackNumber);
+            int discNo = tag.Disc > 0 ? (int)tag.Disc : Math.Max(1, track.DiscNumber);
+            string trackDiscText = tag.TrackCount > 0
+                ? $"Track {trackNo:D2}/{tag.TrackCount:D2} • Disc {discNo}"
+                : $"Track {trackNo:D2} • Disc {discNo}";
+
+            uint kbps = track.StreamSpec.BitrateKbps;
+            if (kbps == 0 && props != null && props.AudioBitrate > 0)
+            {
+                kbps = (uint)props.AudioBitrate;
+            }
+            if (kbps == 0 && track.Duration.TotalSeconds > 0.5 && track.FileSizeBytes > 0)
+            {
+                kbps = (uint)Math.Round((track.FileSizeBytes * 8.0) / (track.Duration.TotalSeconds * 1000.0));
+            }
+            string bitrateText = kbps > 0 ? $"{kbps:N0} kbps" : fallback.BitrateText;
+
+            string? lyrics = !string.IsNullOrWhiteSpace(tag.Lyrics) ? tag.Lyrics.Trim() : null;
+
+            var details = fallback with
+            {
+                Performers = performers,
+                AlbumArtist = albumArtist,
+                Composer = composer,
+                Conductor = conductor,
+                Genre = genre,
+                YearText = yearText,
+                TrackDiscText = trackDiscText,
+                Copyright = copyright,
+                BitrateText = bitrateText,
+                Lyrics = lyrics
+            };
+
+            if (ExtendedDetailsCache.Count > 512)
+            {
+                ExtendedDetailsCache.Clear();
+            }
+            ExtendedDetailsCache[track.FilePath] = details;
+            return details;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
 
     /// <summary>
     /// Membaca file audio dari harddisk dan mengonversinya menjadi entitas Track lengkap.

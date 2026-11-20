@@ -1,0 +1,679 @@
+<UserControl x:Class="AuraAudio.UI.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:helpers="clr-namespace:AuraAudio.UI.Helpers"
+             x:Name="Root"
+             Background="{StaticResource Brush.Canvas}">
+
+    <UserControl.Resources>
+        <!-- SettingContainer Category Card Button (N15 surface, 1px N25 border, r=8px) -->
+        <Style x:Key="Style.SettingsCategoryCard" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource Style.FocusVisual.Monochrome}" />
+            <Setter Property="helpers:FluidBehaviors.EnablePressScale" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="CardBd"
+                                Padding="18,16"
+                                CornerRadius="{StaticResource Radius.Card}"
+                                Background="{StaticResource Brush.Surface}"
+                                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                BorderThickness="1"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter Grid.Column="0" VerticalAlignment="Center" />
+                                <Path Grid.Column="1"
+                                      Width="7" Height="12"
+                                      Margin="12,0,0,0"
+                                      VerticalAlignment="Center"
+                                      Stretch="Uniform"
+                                      Stroke="{StaticResource Brush.Icon.Muted}"
+                                      StrokeThickness="1.6"
+                                      Data="M1,1 L6,6 L1,11" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CardBd" Property="Background" Value="{StaticResource Brush.Elevated}" />
+                                <Setter TargetName="CardBd" Property="BorderBrush" Value="{StaticResource Brush.Border.Control}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- SettingContainer Static Row Card -->
+        <Style x:Key="Style.SettingContainer" TargetType="Border">
+            <Setter Property="Padding" Value="18,16" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="CornerRadius" Value="{StaticResource Radius.Card}" />
+            <Setter Property="Background" Value="{StaticResource Brush.Surface}" />
+            <Setter Property="BorderBrush" Value="{StaticResource Brush.Border.Hairline}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer Focusable="False"
+                  FocusVisualStyle="{x:Null}"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <Grid Margin="{StaticResource Padding.PageContent}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="920" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+
+            <!-- =================================================================
+                 NAVIGATION BREADCRUMB BAR (34px Bold: Settings > SubCategory)
+                 ================================================================= -->
+            <StackPanel Orientation="Horizontal"
+                        Margin="0,0,0,24">
+                <Button Cursor="Hand"
+                        AutomationProperties.AutomationId="Aura.Settings.Breadcrumb"
+                        AutomationProperties.Name="Settings"
+                        FocusVisualStyle="{StaticResource Style.FocusVisual.Monochrome}"
+                        Command="{Binding Settings.NavigateBreadcrumbCommand}"
+                        CommandParameter="Settings">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <TextBlock x:Name="RootCrumb"
+                                       Text="Settings"
+                                       Style="{StaticResource Text.PageTitle}" />
+                            <ControlTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Settings.HasActiveSubCategory}" Value="True">
+                                    <Setter TargetName="RootCrumb" Property="Foreground" Value="{StaticResource Brush.Text.Tertiary}" />
+                                </DataTrigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="RootCrumb" Property="Foreground" Value="{StaticResource Brush.Text.Peak}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+
+                <TextBlock Text="›"
+                           FontSize="26"
+                           Margin="12,2,12,0"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource Brush.Text.Tertiary}"
+                           Visibility="{Binding Settings.HasActiveSubCategory, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                <TextBlock Text="{Binding Settings.ActiveCategoryTitle}"
+                           Style="{StaticResource Text.PageTitle}"
+                           Visibility="{Binding Settings.HasActiveSubCategory, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            </StackPanel>
+
+            <!-- =================================================================
+                 ROOT CATEGORY INDEX (General | Playback | Library | A11y | About)
+                 ================================================================= -->
+            <StackPanel MaxWidth="820"
+                        HorizontalAlignment="Stretch"
+                        Visibility="{Binding Settings.IsRootView, Converter={StaticResource BooleanToVisibilityConverter}}">
+
+                <Button Style="{StaticResource Style.SettingsCategoryCard}"
+                        AutomationProperties.AutomationId="Aura.Settings.Category.General"
+                        Command="{Binding Settings.NavigateCategoryCommand}"
+                        CommandParameter="General">
+                    <StackPanel>
+                        <TextBlock Text="General" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                        <TextBlock Text="Display language (English / Bahasa Indonesia) and startup scanning behavior"
+                                   Style="{StaticResource Text.Callout}"
+                                   Margin="0,3,0,0" />
+                    </StackPanel>
+                </Button>
+
+                <Button Style="{StaticResource Style.SettingsCategoryCard}"
+                        AutomationProperties.AutomationId="Aura.Settings.Category.Playback"
+                        Command="{Binding Settings.NavigateCategoryCommand}"
+                        CommandParameter="Playback">
+                    <StackPanel>
+                        <TextBlock Text="Playback &amp; DAC" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                        <TextBlock Text="WASAPI Exclusive/Shared driver, DAC endpoint selection, buffer latency, and DSD playback mode"
+                                   Style="{StaticResource Text.Callout}"
+                                   Margin="0,3,0,0" />
+                    </StackPanel>
+                </Button>
+
+                <Button Style="{StaticResource Style.SettingsCategoryCard}"
+                        AutomationProperties.AutomationId="Aura.Settings.Category.Library"
+                        Command="{Binding Settings.NavigateCategoryCommand}"
+                        CommandParameter="Library">
+                    <StackPanel>
+                        <TextBlock Text="Library &amp; Files" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                        <TextBlock Text="Monitored music folders, excluded directories, rescan progress, export path, and database maintenance"
+                                   Style="{StaticResource Text.Callout}"
+                                   Margin="0,3,0,0" />
+                    </StackPanel>
+                </Button>
+
+                <Button Style="{StaticResource Style.SettingsCategoryCard}"
+                        AutomationProperties.AutomationId="Aura.Settings.Category.Accessibility"
+                        Command="{Binding Settings.NavigateCategoryCommand}"
+                        CommandParameter="Accessibility">
+                    <StackPanel>
+                        <TextBlock Text="Accessibility" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                        <TextBlock Text="Reduced motion transitions, equalizer animation behavior, and navigation rail preference"
+                                   Style="{StaticResource Text.Callout}"
+                                   Margin="0,3,0,0" />
+                    </StackPanel>
+                </Button>
+
+                <Button Style="{StaticResource Style.SettingsCategoryCard}"
+                        AutomationProperties.AutomationId="Aura.Settings.Category.About"
+                        Command="{Binding Settings.NavigateCategoryCommand}"
+                        CommandParameter="About">
+                    <StackPanel>
+                        <TextBlock Text="About" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                        <TextBlock Text="AuraAudio v2.0.0 version info, audio engine statistics, and keyboard shortcuts"
+                                   Style="{StaticResource Text.Callout}"
+                                   Margin="0,3,0,0" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!-- =================================================================
+                 SUB-PAGE 1: GENERAL
+                 ================================================================= -->
+            <StackPanel MaxWidth="820"
+                        Visibility="{Binding Settings.IsGeneralView, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
+                            <TextBlock Text="Display Language" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <TextBlock Text="Applies immediately to metadata summaries, audio diagnostics, and tooltips."
+                                       Style="{StaticResource Text.Callout}"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <Border Grid.Column="1"
+                                Padding="3"
+                                CornerRadius="{StaticResource Radius.Card}"
+                                Background="{StaticResource Brush.Rail}"
+                                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                BorderThickness="1"
+                                VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton Style="{StaticResource Style.Toggle.Segmented}"
+                                             GroupName="LangRadio"
+                                             Content="English"
+                                             IsChecked="{Binding Settings.IsEnglish, Mode=OneWay}"
+                                             Command="{Binding Settings.SetLanguageCommand}"
+                                             CommandParameter="en" />
+                                <RadioButton Style="{StaticResource Style.Toggle.Segmented}"
+                                             GroupName="LangRadio"
+                                             Content="Indonesia"
+                                             IsChecked="{Binding Settings.IsIndonesian, Mode=OneWay}"
+                                             Command="{Binding Settings.SetLanguageCommand}"
+                                             CommandParameter="id" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
+                            <TextBlock Text="Auto-Scan Library on Startup" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <TextBlock Text="Incrementally indexes new or updated audio files in monitored folders when AuraAudio launches."
+                                       Style="{StaticResource Text.Callout}"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="1"
+                                  Style="{StaticResource Style.ToggleSwitch}"
+                                  VerticalAlignment="Center"
+                                  IsChecked="{Binding Settings.AutoScanOnStartup, Mode=TwoWay}" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- =================================================================
+                 SUB-PAGE 2: PLAYBACK & DAC (Absorbs HardwareConfigDialog)
+                 ================================================================= -->
+            <StackPanel MaxWidth="820"
+                        Visibility="{Binding Settings.IsPlaybackView, Converter={StaticResource BooleanToVisibilityConverter}}">
+
+                <!-- Output Endpoint -->
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Audio Output Endpoint" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                                <TextBlock Text="Select your USB DAC, audio interface, or system render endpoint."
+                                           Style="{StaticResource Text.Callout}"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Style="{StaticResource Style.Button.Ghost}"
+                                    Height="30"
+                                    Content="Refresh Devices"
+                                    Command="{Binding Settings.HardwareConfig.RefreshDevicesCommand}" />
+                        </Grid>
+
+                        <ComboBox Margin="0,12,0,0"
+                                  ItemsSource="{Binding Settings.HardwareConfig.AvailableDevices}"
+                                  SelectedItem="{Binding Settings.HardwareConfig.SelectedDevice, Mode=TwoWay}"
+                                  DisplayMemberPath="Name" />
+
+                        <TextBlock Text="{Binding Settings.HardwareConfig.DeviceDetailsText}"
+                                   Style="{StaticResource Text.TabularMono}"
+                                   Foreground="{StaticResource Brush.Text.Tertiary}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,10,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- WASAPI Exclusive vs Shared -->
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                            <TextBlock Text="WASAPI Driver Mode" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <TextBlock Text="{Binding Settings.HardwareConfig.DriverTypeDescription}"
+                                       Style="{StaticResource Text.Callout}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <Border Grid.Column="1"
+                                Padding="3"
+                                VerticalAlignment="Center"
+                                CornerRadius="{StaticResource Radius.Card}"
+                                Background="{StaticResource Brush.Rail}"
+                                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                BorderThickness="1">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton Style="{StaticResource Style.Toggle.Segmented}"
+                                             GroupName="DriverModeRadio"
+                                             Content="Exclusive"
+                                             IsChecked="{Binding Settings.HardwareConfig.IsExclusiveMode, Mode=TwoWay}" />
+                                <RadioButton Style="{StaticResource Style.Toggle.Segmented}"
+                                             GroupName="DriverModeRadio"
+                                             Content="Shared"
+                                             IsChecked="{Binding Settings.HardwareConfig.IsSharedMode, Mode=TwoWay}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Buffer Latency Slider -->
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <StackPanel>
+                        <Grid>
+                            <TextBlock Text="Hardware Buffer Latency" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <Border HorizontalAlignment="Right"
+                                    Padding="7,2"
+                                    CornerRadius="{StaticResource Radius.Badge}"
+                                    Background="{StaticResource Brush.Elevated}"
+                                    BorderBrush="{StaticResource Brush.Border.Control}"
+                                    BorderThickness="1">
+                                <TextBlock Text="{Binding Settings.HardwareConfig.BufferSafetyBadge}"
+                                           Style="{StaticResource Text.TabularMono}"
+                                           FontSize="9"
+                                           Foreground="{StaticResource Brush.Text.Primary}" />
+                            </Border>
+                        </Grid>
+                        <TextBlock Text="{Binding Settings.HardwareConfig.LatencyDescription}"
+                                   Style="{StaticResource Text.Callout}"
+                                   Margin="0,3,0,12" />
+                        <Slider Style="{StaticResource Style.Slider.MonochromeVolume}"
+                                Minimum="20"
+                                Maximum="250"
+                                TickFrequency="5"
+                                IsSnapToTickEnabled="True"
+                                Value="{Binding Settings.HardwareConfig.LatencyMs, Mode=TwoWay}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- DSD Mode -->
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                            <TextBlock Text="DSD Playback Mode" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <TextBlock Text="{Binding Settings.HardwareConfig.DsdModeDescription}"
+                                       Style="{StaticResource Text.Callout}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <Border Grid.Column="1"
+                                Padding="3"
+                                VerticalAlignment="Center"
+                                CornerRadius="{StaticResource Radius.Card}"
+                                Background="{StaticResource Brush.Rail}"
+                                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                BorderThickness="1">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton Style="{StaticResource Style.Toggle.Segmented}"
+                                             GroupName="DsdModeRadio"
+                                             Content="PCM FIR"
+                                             IsChecked="{Binding Settings.HardwareConfig.IsDsdDecimation, Mode=TwoWay}" />
+                                <RadioButton Style="{StaticResource Style.Toggle.Segmented}"
+                                             GroupName="DsdModeRadio"
+                                             Content="DoP 1.0"
+                                             IsChecked="{Binding Settings.HardwareConfig.IsDsdDoP, Mode=TwoWay}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Apply Button + Inline Monochrome Confirmation -->
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <Button Style="{StaticResource Style.Button.Primary}"
+                            AutomationProperties.AutomationId="Aura.Settings.Playback.Apply"
+                            Content="Apply Audio Output"
+                            Command="{Binding Settings.ApplyPlaybackSettingsCommand}" />
+                    <Border Margin="12,0,0,0"
+                            Padding="12,6"
+                            CornerRadius="{StaticResource Radius.Control}"
+                            Background="{StaticResource Brush.Elevated}"
+                            BorderBrush="{StaticResource Brush.Border.Control}"
+                            BorderThickness="1"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding Settings.HardwareConfig.HasStatusMessage, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="{Binding Settings.HardwareConfig.StatusMessage}"
+                                   Style="{StaticResource Text.Callout}"
+                                   Foreground="{StaticResource Brush.Text.Primary}" />
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- =================================================================
+                 SUB-PAGE 3: LIBRARY & FILES (Absorbs LibraryManagerDialog)
+                 ================================================================= -->
+            <StackPanel MaxWidth="820"
+                        Visibility="{Binding Settings.IsLibraryView, Converter={StaticResource BooleanToVisibilityConverter}}">
+
+                <!-- Monitored Folders -->
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Monitored Music Folders" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                                <TextBlock Text="Rescans preserve play history and date-added metadata for unchanged file paths."
+                                           Style="{StaticResource Text.Callout}"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <Button Style="{StaticResource Style.Button.Primary}"
+                                        Height="32"
+                                        Padding="14,0"
+                                        AutomationProperties.AutomationId="Aura.Settings.Library.AddFolder"
+                                        Content="+ Add Folder"
+                                        Command="{Binding Settings.AddFolderCommand}" />
+                                <Button Style="{StaticResource Style.Button.Secondary}"
+                                        Height="32"
+                                        Margin="8,0,0,0"
+                                        Padding="14,0"
+                                        AutomationProperties.AutomationId="Aura.Settings.Library.Rescan"
+                                        Content="Rescan All"
+                                        Command="{Binding Settings.RescanLibraryCommand}" />
+                            </StackPanel>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding Settings.MonitoredFolders}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,6"
+                                            Padding="12,8"
+                                            CornerRadius="{StaticResource Radius.Control}"
+                                            Background="{StaticResource Brush.Rail}"
+                                            BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                            BorderThickness="1">
+                                        <Grid>
+                                            <TextBlock Text="{Binding}"
+                                                       Style="{StaticResource Text.TabularMono}"
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource Brush.Text.Primary}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,70,0" />
+                                            <Button Style="{StaticResource Style.Button.Ghost}"
+                                                    Height="26"
+                                                    Padding="8,0"
+                                                    HorizontalAlignment="Right"
+                                                    Content="Remove"
+                                                    Command="{Binding DataContext.Settings.RemoveFolderCommand, ElementName=Root}"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Inline Scan Progress Bar -->
+                        <StackPanel Margin="0,8,0,0"
+                                    Visibility="{Binding Settings.HasScanStatus, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Grid Margin="0,0,0,6">
+                                <TextBlock Text="{Binding Settings.ScanStatusText}"
+                                           Style="{StaticResource Text.Callout}"
+                                           Foreground="{StaticResource Brush.Text.Secondary}"
+                                           VerticalAlignment="Center" />
+                                <Button Style="{StaticResource Style.Button.Ghost}"
+                                        Height="24"
+                                        HorizontalAlignment="Right"
+                                        Content="Cancel"
+                                        Command="{Binding Settings.CancelScanCommand}"
+                                        Visibility="{Binding Settings.IsScanning, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            </Grid>
+                            <Border Height="4"
+                                    CornerRadius="2"
+                                    Background="{StaticResource Brush.Scrubber.Track}"
+                                    Visibility="{Binding Settings.IsScanning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <ProgressBar Minimum="0"
+                                             Maximum="100"
+                                             Value="{Binding Settings.ScanProgressPercent}"
+                                             Background="Transparent"
+                                             Foreground="{StaticResource Brush.Scrubber.Fill}"
+                                             BorderThickness="0" />
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Excluded Folders -->
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,10">
+                            <StackPanel>
+                                <TextBlock Text="Excluded Subfolders" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                                <TextBlock Text="Directories skipped during recursive library scans."
+                                           Style="{StaticResource Text.Callout}"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                            <Button Style="{StaticResource Style.Button.Secondary}"
+                                    Height="30"
+                                    Padding="12,0"
+                                    HorizontalAlignment="Right"
+                                    Content="+ Exclude Folder"
+                                    Command="{Binding Settings.AddExcludedFolderCommand}" />
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding Settings.ExcludedFolders}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,6"
+                                            Padding="12,8"
+                                            CornerRadius="{StaticResource Radius.Control}"
+                                            Background="{StaticResource Brush.Rail}"
+                                            BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                            BorderThickness="1">
+                                        <Grid>
+                                            <TextBlock Text="{Binding}"
+                                                       Style="{StaticResource Text.TabularMono}"
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource Brush.Text.Secondary}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,70,0" />
+                                            <Button Style="{StaticResource Style.Button.Ghost}"
+                                                    Height="26"
+                                                    Padding="8,0"
+                                                    HorizontalAlignment="Right"
+                                                    Content="Remove"
+                                                    Command="{Binding DataContext.Settings.RemoveExcludedFolderCommand, ElementName=Root}"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Export Directory -->
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                            <TextBlock Text="Default Export Directory" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <TextBlock Text="{Binding Settings.ExportDirectory}"
+                                       Style="{StaticResource Text.TabularMono}"
+                                       FontSize="12"
+                                       Foreground="{StaticResource Brush.Text.Secondary}"
+                                       Margin="0,4,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Style="{StaticResource Style.Button.Secondary}"
+                                Height="32"
+                                VerticalAlignment="Center"
+                                Content="Change Folder"
+                                Command="{Binding Settings.PickExportDirectoryCommand}" />
+                    </Grid>
+                </Border>
+
+                <!-- Purge Library -->
+                <Border Style="{StaticResource Style.SettingContainer}"
+                        BorderBrush="{StaticResource Brush.Border.Control}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                            <TextBlock Text="Clear Library Database" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <TextBlock Text="Removes all indexed tracks, albums, artists, playlists, and play history from SQLite. Audio files on disk are untouched."
+                                       Style="{StaticResource Text.Callout}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Style="{StaticResource Style.Button.Secondary}"
+                                Height="32"
+                                VerticalAlignment="Center"
+                                Content="Clear Database"
+                                Command="{Binding Settings.ClearLibraryCommand}" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- =================================================================
+                 SUB-PAGE 4: ACCESSIBILITY
+                 ================================================================= -->
+            <StackPanel MaxWidth="820"
+                        Visibility="{Binding Settings.IsAccessibilityView, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
+                            <TextBlock Text="Force Reduced Motion" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <TextBlock Text="Replaces spring transitions with instant snaps and pauses equalizer bar animation."
+                                       Style="{StaticResource Text.Callout}"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="1"
+                                  Style="{StaticResource Style.ToggleSwitch}"
+                                  AutomationProperties.AutomationId="Aura.Settings.A11y.ReducedMotion"
+                                  VerticalAlignment="Center"
+                                  IsChecked="{Binding Settings.ForceReducedMotion, Mode=TwoWay}" />
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
+                            <TextBlock Text="Compact Navigation Rail (56px)" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <TextBlock Text="Collapse the left sidebar to icons only to maximize horizontal listening space."
+                                       Style="{StaticResource Text.Callout}"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="1"
+                                  Style="{StaticResource Style.ToggleSwitch}"
+                                  VerticalAlignment="Center"
+                                  IsChecked="{Binding Presentation.IsSidebarCollapsed, Mode=TwoWay}" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- =================================================================
+                 SUB-PAGE 5: ABOUT
+                 ================================================================= -->
+            <StackPanel MaxWidth="820"
+                        Visibility="{Binding Settings.IsAboutView, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Settings.AppVersionText}"
+                                   Style="{StaticResource Text.Title2}"
+                                   Foreground="{StaticResource Brush.Text.Peak}" />
+                        <TextBlock Text="Pure-monochrome audiophile desktop music player featuring bit-perfect WASAPI Exclusive output, gapless PCM/DSD playback, forensic Nyquist FFT inspection, and synced LRC/SYLT lyrics."
+                                   Style="{StaticResource Text.Body}"
+                                   Foreground="{StaticResource Brush.Text.Secondary}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,8,0,14" />
+                        <Border Padding="12,10"
+                                CornerRadius="{StaticResource Radius.Control}"
+                                Background="{StaticResource Brush.Rail}"
+                                BorderBrush="{StaticResource Brush.Border.Hairline}"
+                                BorderThickness="1">
+                            <TextBlock Text="{Binding Settings.EngineStatsSummary}"
+                                       Style="{StaticResource Text.TabularMono}"
+                                       FontSize="12"
+                                       Foreground="{StaticResource Brush.Text.Primary}"
+                                       TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <StackPanel>
+                        <TextBlock Text="Keyboard Accelerators" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" Margin="0,0,0,10" />
+                        <TextBlock Style="{StaticResource Text.TabularMono}" FontSize="12" Foreground="{StaticResource Brush.Text.Secondary}" LineHeight="22"
+                                   Text="Space: Play/Pause  ·  Left/Right: Seek ±5s  ·  Ctrl+Left/Right: Prev/Next&#x0a;Up/Down: Volume ±5%  ·  M: Mute  ·  S: Shuffle  ·  R: Repeat&#x0a;Ctrl+F: Global Search  ·  Ctrl+U: Queue Pane  ·  Ctrl+Shift+L: Lyrics&#x0a;Ctrl+I: Get Info Sheet  ·  Ctrl+Shift+F: Full-Screen  ·  Ctrl+Shift+M: Mini-Player&#x0a;Ctrl+,: Settings  ·  Alt+Left/Right: Back/Forward  ·  Esc: Dismiss Overlay" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

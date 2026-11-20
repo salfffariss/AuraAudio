@@ -1,0 +1,71 @@
+<UserControl x:Class="AuraAudio.UI.Views.RenamePlaylistSheet"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="Root"
+             AutomationProperties.AutomationId="Aura.Sheet.RenamePlaylist">
+
+    <Grid x:Name="SheetScrim"
+          Background="{StaticResource Brush.Overlay.Scrim}"
+          MouseLeftButtonDown="Scrim_MouseLeftButtonDown">
+
+        <Border x:Name="SheetCard"
+                Width="420"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                CornerRadius="{StaticResource Radius.Sheet}"
+                Background="{StaticResource Brush.Surface}"
+                BorderBrush="{StaticResource Brush.Border.Control}"
+                BorderThickness="1"
+                Padding="22,20"
+                MouseLeftButtonDown="SheetCard_MouseLeftButtonDown">
+            <StackPanel>
+                <!-- Header -->
+                <Grid Margin="0,0,0,14">
+                    <TextBlock Text="{Binding RenameSheetTitle}"
+                               Style="{StaticResource Text.Title2}"
+                               Foreground="{StaticResource Brush.Text.Peak}"
+                               VerticalAlignment="Center" />
+                    <Button Style="{StaticResource Style.Button.Icon}"
+                            HorizontalAlignment="Right"
+                            AutomationProperties.AutomationId="Aura.RenamePlaylist.Close"
+                            Command="{Binding CancelRenameSheetCommand}"
+                            ToolTip="Cancel (Esc)">
+                        <Path Width="10" Height="10" Stretch="Uniform"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              StrokeThickness="1.5"
+                              Data="M1,1 L9,9 M9,1 L1,9" />
+                    </Button>
+                </Grid>
+
+                <TextBlock Text="Playlist Name"
+                           Style="{StaticResource Text.Callout}"
+                           Foreground="{StaticResource Brush.Text.Secondary}"
+                           Margin="0,0,0,6" />
+
+                <TextBox x:Name="RenameInputBox"
+                         Height="36"
+                         AutomationProperties.AutomationId="Aura.RenamePlaylist.Input"
+                         Text="{Binding RenameSheetInputText, UpdateSourceTrigger=PropertyChanged}"
+                         KeyDown="RenameInputBox_KeyDown" />
+
+                <!-- Actions -->
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="0,18,0,0">
+                    <Button Style="{StaticResource Style.Button.Ghost}"
+                            Height="34"
+                            Padding="16,0"
+                            Margin="0,0,8,0"
+                            Content="Cancel"
+                            Command="{Binding CancelRenameSheetCommand}" />
+                    <Button Style="{StaticResource Style.Button.Primary}"
+                            Height="34"
+                            Padding="20,0"
+                            AutomationProperties.AutomationId="Aura.RenamePlaylist.Save"
+                            Content="Save"
+                            Command="{Binding ConfirmRenameSheetCommand}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

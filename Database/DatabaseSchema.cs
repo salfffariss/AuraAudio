@@ -126,6 +126,14 @@ public static class DatabaseSchema
             PRIMARY KEY (track_id, artist_name),
             FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
         );
+
+        -- 11. TABEL PLAY_HISTORY (Riwayat Pemutaran untuk Home Jump Back In & Queue History)
+        CREATE TABLE IF NOT EXISTS play_history (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_id            INTEGER NOT NULL,
+            played_at_ticks     INTEGER NOT NULL,
+            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
     """;
 
     /// <summary>
@@ -185,6 +193,11 @@ public static class DatabaseSchema
         );
         CREATE INDEX IF NOT EXISTS idx_track_artists_track ON track_artists (
             track_id ASC
+        );
+
+        -- 9. Indeks Riwayat Pemutaran Terbaru (Play History)
+        CREATE INDEX IF NOT EXISTS idx_play_history_time ON play_history (
+            played_at_ticks DESC
         );
     """;
 }

@@ -29,5 +29,20 @@ public enum TrackSortOption
     RecentlyAdded,
 
     /// <summary>Lagu dengan resolusi tertinggi lebih dahulu (DSD &amp; 192kHz di urutan atas)</summary>
-    HiResFirst
+    HiResFirst,
+
+    /// <summary>Nama album dari abjad A sampai Z</summary>
+    AlbumAscending,
+
+    /// <summary>Nama album dari abjad Z sampai A</summary>
+    AlbumDescending,
+
+    /// <summary>Format resolusi standar lebih dahulu (sample rate &amp; bit depth menaik)</summary>
+    FormatAscending,
+
+    /// <summary>Durasi lagu terpendek ke terpanjang</summary>
+    DurationAscending,
+
+    /// <summary>Durasi lagu terpanjang ke terpendek</summary>
+    DurationDescending
 }

@@ -9,6 +9,7 @@
 
     <!-- Navigasi Sidebar -->
     <sys:String x:Key="Str_Nav_MusicCollection">Koleksi Musik</sys:String>
+    <sys:String x:Key="Str_Nav_NowPlaying">Detail Lagu Aktif</sys:String>
     <sys:String x:Key="Str_Nav_Songs">Pustaka Lagu</sys:String>
     <sys:String x:Key="Str_Nav_Albums">Album</sys:String>
     <sys:String x:Key="Str_Nav_Artists">Artis</sys:String>
@@ -23,9 +24,14 @@
     <sys:String x:Key="Str_Top_ManageFolders">Kelola Folder</sys:String>
     <sys:String x:Key="Str_Top_ManageFoldersTip">Atur folder musik yang dipantau dan bersihkan database</sys:String>
     <sys:String x:Key="Str_Top_SearchPlaceholder">Cari judul lagu, artis, atau album...</sys:String>
+    <sys:String x:Key="Str_Search_ShortPlaceholder">Cari...</sys:String>
     <sys:String x:Key="Str_Top_TracksIndexedSuffix">lagu terindeks</sys:String>
     <sys:String x:Key="Str_Top_LangButton">ID / EN</sys:String>
     <sys:String x:Key="Str_Top_LangTip">Ganti bahasa tampilan (Indonesia / Inggris)</sys:String>
+    <sys:String x:Key="Str_Lcd_ReadyTitle">AuraAudio Siap</sys:String>
+    <sys:String x:Key="Str_Lcd_ReadySubtitle">Pilih lagu untuk memutar audio bit-perfect</sys:String>
+    <sys:String x:Key="Str_Hover_PlayTrack">Putar lagu</sys:String>
+    <sys:String x:Key="Str_Hover_MoreOptions">Opsi lainnya</sys:String>
 
     <!-- Judul Halaman -->
     <sys:String x:Key="Str_Header_SongsTitle">Pustaka Musik Lokal</sys:String>
@@ -83,6 +89,9 @@
     <!-- Antrean -->
     <sys:String x:Key="Str_Queue_Badge">Antrean Pemutaran</sys:String>
     <sys:String x:Key="Str_Queue_Title">Antrean Putar</sys:String>
+    <sys:String x:Key="Str_Queue_PlayingNext">Diputar Berikutnya</sys:String>
+    <sys:String x:Key="Str_Queue_NowPlaying">SEDANG DIPUTAR</sys:String>
+    <sys:String x:Key="Str_Queue_DrawerTip">Buka / Tutup Antrean Putar (Q)</sys:String>
     <sys:String x:Key="Str_Queue_SavePlaylist">Simpan Jadi Playlist</sys:String>
     <sys:String x:Key="Str_Queue_ExportM3u">Ekspor M3U8</sys:String>
     <sys:String x:Key="Str_Queue_ImportM3u">Impor M3U</sys:String>
@@ -233,4 +242,34 @@
     <sys:String x:Key="Str_RenamePl_WindowTitle">Ganti Nama Playlist - AuraAudio</sys:String>
     <sys:String x:Key="Str_RenamePl_Title">Ganti Nama Playlist</sys:String>
     <sys:String x:Key="Str_RenamePl_Desc">Ketik nama baru untuk playlist ini:</sys:String>
+
+    <!-- Panggung Detail Lagu Aktif (Now Playing Music Detail Stage) -->
+    <sys:String x:Key="Str_NP_StageBadge">SEDANG DIPUTAR • DETAIL MASTERING</sys:String>
+    <sys:String x:Key="Str_NP_PlayingFromAlbum">Memutar dari album</sys:String>
+    <sys:String x:Key="Str_NP_BtnViewAlbum">Lihat Album</sys:String>
+    <sys:String x:Key="Str_NP_BtnViewArtist">Profil Artis</sys:String>
+    <sys:String x:Key="Str_NP_BtnInspectSpectrum">Uji Spektrum</sys:String>
+    <sys:String x:Key="Str_NP_BtnOpenFolder">Lokasi File</sys:String>
+    <sys:String x:Key="Str_NP_BtnCollapseStage">Tutup Detail</sys:String>
+    <sys:String x:Key="Str_NP_AboutArtistTitle">Tentang Artis</sys:String>
+    <sys:String x:Key="Str_NP_OpenArtistPage">Lihat Diskografi</sys:String>
+    <sys:String x:Key="Str_NP_MoreByArtistHeader">Lagu Lainnya di Pustaka Anda</sys:String>
+    <sys:String x:Key="Str_NP_CreditsTitle">Kredit &amp; Spesifikasi Mastering</sys:String>
+    <sys:String x:Key="Str_NP_CreditsInspectLink">Analisis FFT Lengkap</sys:String>
+    <sys:String x:Key="Str_NP_CreditPerformedBy">Penampil Utama</sys:String>
+    <sys:String x:Key="Str_NP_CreditComposer">Komposer / Penulis</sys:String>
+    <sys:String x:Key="Str_NP_CreditAlbumArtist">Artis Album</sys:String>
+    <sys:String x:Key="Str_NP_CreditAlbumTrack">Album &amp; Nomor Urut</sys:String>
+    <sys:String x:Key="Str_NP_CreditGenreYear">Genre &amp; Tahun Rilis</sys:String>
+    <sys:String x:Key="Str_NP_CreditCodec">Format &amp; Kompresi</sys:String>
+    <sys:String x:Key="Str_NP_CreditResolution">Resolusi &amp; Bitrate</sys:String>
+    <sys:String x:Key="Str_NP_CreditFileInfo">Ukuran &amp; Nama Berkas</sys:String>
+    <sys:String x:Key="Str_NP_CreditCopyright">Hak Cipta / Catatan</sys:String>
+    <sys:String x:Key="Str_NP_SignalChainTitle">Rantai Sinyal Audio Bit-Perfect</sys:String>
+    <sys:String x:Key="Str_NP_SignalNodeSource">1. Berkas Sumber</sys:String>
+    <sys:String x:Key="Str_NP_SignalNodeDecoder">2. Dekoder Presisi</sys:String>
+    <sys:String x:Key="Str_NP_SignalNodeTransport">3. Transport Audio</sys:String>
+    <sys:String x:Key="Str_NP_SignalNodeEndpoint">4. Perangkat DAC</sys:String>
+    <sys:String x:Key="Str_NP_LyricsTitle">Lirik Tertanam</sys:String>
+    <sys:String x:Key="Str_NP_ExpandTip">Buka detail lagu &amp; kredit mastering</sys:String>
 </ResourceDictionary>

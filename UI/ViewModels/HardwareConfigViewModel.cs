@@ -75,7 +75,7 @@ public class HardwareConfigViewModel : ViewModelBase
             if (SetProperty(ref _latencyMs, value))
             {
                 OnPropertyChanged(nameof(LatencyDescription));
-                OnPropertyChanged(nameof(LatencyColorHex));
+                OnPropertyChanged(nameof(LatencyTier));
                 OnPropertyChanged(nameof(BufferSafetyBadge));
             }
         }
@@ -109,8 +109,16 @@ public class HardwareConfigViewModel : ViewModelBase
     public string StatusMessage
     {
         get => _statusMessage;
-        set => SetProperty(ref _statusMessage, value);
+        set
+        {
+            if (SetProperty(ref _statusMessage, value))
+            {
+                OnPropertyChanged(nameof(HasStatusMessage));
+            }
+        }
     }
+
+    public bool HasStatusMessage => !string.IsNullOrWhiteSpace(_statusMessage);
 
     public string LatencyDescription
     {
@@ -135,12 +143,12 @@ public class HardwareConfigViewModel : ViewModelBase
         }
     }
 
-    public string LatencyColorHex => LatencyMs switch
+    public string LatencyTier => LatencyMs switch
     {
-        < 35 => "#06B6D4",   // Cyan
-        <= 75 => "#10B981",  // Emerald Green (Optimal)
-        <= 150 => "#F59E0B", // Gold / Amber
-        _ => "#94A3B8"       // Slate
+        < 35 => "UltraLow",
+        <= 75 => "Optimal",
+        <= 150 => "Safe",
+        _ => "Conservative"
     };
 
     public string BufferSafetyBadge
@@ -225,6 +233,11 @@ public class HardwareConfigViewModel : ViewModelBase
         LoadCurrentSettings();
     }
 
+    public void Cleanup()
+    {
+        LocalizationManager.LanguageChanged -= OnLanguageChanged;
+    }
+
     private void OnLanguageChanged()
     {
         OnPropertyChanged(nameof(DeviceDetailsText));
@@ -257,7 +270,7 @@ public class HardwareConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsSharedMode));
         OnPropertyChanged(nameof(LatencyMs));
         OnPropertyChanged(nameof(LatencyDescription));
-        OnPropertyChanged(nameof(LatencyColorHex));
+        OnPropertyChanged(nameof(LatencyTier));
         OnPropertyChanged(nameof(BufferSafetyBadge));
         OnPropertyChanged(nameof(IsDsdDoP));
         OnPropertyChanged(nameof(IsDsdDecimation));
@@ -305,15 +318,18 @@ public class HardwareConfigViewModel : ViewModelBase
             _controller.SetDsdMode(dsdMode);
             _db.SetSetting("dsd_mode", dsdMode.ToString());
 
-            StatusMessage = "Pengaturan berhasil diterapkan secara langsung ke hardware!";
+            bool isEn = LocalizationManager.CurrentLanguage == "en";
+            StatusMessage = isEn
+                ? "Audio output settings applied live to hardware."
+                : "Pengaturan audio berhasil diterapkan langsung ke perangkat!";
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Peringatan: {ex.Message}";
+            bool isEn = LocalizationManager.CurrentLanguage == "en";
+            StatusMessage = isEn ? $"Warning: {ex.Message}" : $"Peringatan: {ex.Message}";
         }
         finally
         {
-            LocalizationManager.LanguageChanged -= OnLanguageChanged;
             RequestClose?.Invoke();
         }
     }

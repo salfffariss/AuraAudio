@@ -1,0 +1,49 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- =======================================================================
+         APP-SCOPE SYSTEMCOLORS OVERRIDES (03_design_spec.md Part A.6)
+         Prevents Windows accent color or system highlight hue from leaking
+         into WPF controls, selection bands, menus, tooltips, or focus visuals.
+         ======================================================================= -->
+
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="{StaticResource Color.Neutral.25}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="{StaticResource Color.Neutral.100}" />
+
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="{StaticResource Color.Neutral.20}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="{StaticResource Color.Neutral.92}" />
+
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="{StaticResource Color.Neutral.15}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="{StaticResource Color.Neutral.92}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="{StaticResource Color.Neutral.10}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="{StaticResource Color.Neutral.92}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.GrayTextBrushKey}" Color="{StaticResource Color.Neutral.40}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="{StaticResource Color.Neutral.100}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuHighlightBrushKey}" Color="{StaticResource Color.Neutral.25}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="{StaticResource Color.Neutral.20}" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="{StaticResource Color.Neutral.92}" />
+
+    <!-- Dual-ring high-contrast monochrome keyboard focus ring (visible on dark AND white fills) -->
+    <Style x:Key="Style.FocusVisual.Monochrome">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Margin="-2"
+                            BorderBrush="{StaticResource Brush.Focus.Outer}"
+                            BorderThickness="2"
+                            CornerRadius="8"
+                            SnapsToDevicePixels="True">
+                        <Border BorderBrush="{StaticResource Brush.Focus.Inner}"
+                                BorderThickness="1"
+                                CornerRadius="6" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Override WPF's default dotted-rectangle focus visual globally -->
+    <Style x:Key="{x:Static SystemParameters.FocusVisualStyleKey}"
+           BasedOn="{StaticResource Style.FocusVisual.Monochrome}" />
+
+</ResourceDictionary>

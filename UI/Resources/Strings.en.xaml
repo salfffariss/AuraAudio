@@ -9,6 +9,7 @@
 
     <!-- Sidebar Navigation -->
     <sys:String x:Key="Str_Nav_MusicCollection">Library</sys:String>
+    <sys:String x:Key="Str_Nav_NowPlaying">Now Playing Detail</sys:String>
     <sys:String x:Key="Str_Nav_Songs">Music Library</sys:String>
     <sys:String x:Key="Str_Nav_Albums">Albums</sys:String>
     <sys:String x:Key="Str_Nav_Artists">Artists</sys:String>
@@ -23,9 +24,14 @@
     <sys:String x:Key="Str_Top_ManageFolders">Manage Folders</sys:String>
     <sys:String x:Key="Str_Top_ManageFoldersTip">Manage monitored music directories and database</sys:String>
     <sys:String x:Key="Str_Top_SearchPlaceholder">Search tracks, artists, or albums...</sys:String>
+    <sys:String x:Key="Str_Search_ShortPlaceholder">Search...</sys:String>
     <sys:String x:Key="Str_Top_TracksIndexedSuffix">tracks indexed</sys:String>
     <sys:String x:Key="Str_Top_LangButton">ID / EN</sys:String>
     <sys:String x:Key="Str_Top_LangTip">Switch display language (Indonesian / English)</sys:String>
+    <sys:String x:Key="Str_Lcd_ReadyTitle">AuraAudio Ready</sys:String>
+    <sys:String x:Key="Str_Lcd_ReadySubtitle">Select a track to play bit-perfect audio</sys:String>
+    <sys:String x:Key="Str_Hover_PlayTrack">Play track</sys:String>
+    <sys:String x:Key="Str_Hover_MoreOptions">More options</sys:String>
 
     <!-- View Headers -->
     <sys:String x:Key="Str_Header_SongsTitle">Local Music Library</sys:String>
@@ -83,6 +89,9 @@
     <!-- Queue View -->
     <sys:String x:Key="Str_Queue_Badge">Play Queue</sys:String>
     <sys:String x:Key="Str_Queue_Title">Play Queue</sys:String>
+    <sys:String x:Key="Str_Queue_PlayingNext">Playing Next</sys:String>
+    <sys:String x:Key="Str_Queue_NowPlaying">NOW PLAYING</sys:String>
+    <sys:String x:Key="Str_Queue_DrawerTip">Toggle Playing Next Queue (Q)</sys:String>
     <sys:String x:Key="Str_Queue_SavePlaylist">Save as Playlist</sys:String>
     <sys:String x:Key="Str_Queue_ExportM3u">Export M3U8</sys:String>
     <sys:String x:Key="Str_Queue_ImportM3u">Import M3U</sys:String>
@@ -233,4 +242,34 @@
     <sys:String x:Key="Str_RenamePl_WindowTitle">Rename Playlist - AuraAudio</sys:String>
     <sys:String x:Key="Str_RenamePl_Title">Rename Playlist</sys:String>
     <sys:String x:Key="Str_RenamePl_Desc">Enter the new name for this playlist:</sys:String>
+
+    <!-- Now Playing Music Detail Stage -->
+    <sys:String x:Key="Str_NP_StageBadge">NOW PLAYING • MASTERING DETAIL</sys:String>
+    <sys:String x:Key="Str_NP_PlayingFromAlbum">Playing from album</sys:String>
+    <sys:String x:Key="Str_NP_BtnViewAlbum">View Album</sys:String>
+    <sys:String x:Key="Str_NP_BtnViewArtist">Artist Profile</sys:String>
+    <sys:String x:Key="Str_NP_BtnInspectSpectrum">Spectrum Check</sys:String>
+    <sys:String x:Key="Str_NP_BtnOpenFolder">File Location</sys:String>
+    <sys:String x:Key="Str_NP_BtnCollapseStage">Collapse Detail</sys:String>
+    <sys:String x:Key="Str_NP_AboutArtistTitle">About the Artist</sys:String>
+    <sys:String x:Key="Str_NP_OpenArtistPage">View Discography</sys:String>
+    <sys:String x:Key="Str_NP_MoreByArtistHeader">More in Your Library</sys:String>
+    <sys:String x:Key="Str_NP_CreditsTitle">Credits &amp; Mastering Specs</sys:String>
+    <sys:String x:Key="Str_NP_CreditsInspectLink">Full FFT Analysis</sys:String>
+    <sys:String x:Key="Str_NP_CreditPerformedBy">Performed By</sys:String>
+    <sys:String x:Key="Str_NP_CreditComposer">Written / Composed By</sys:String>
+    <sys:String x:Key="Str_NP_CreditAlbumArtist">Album Artist</sys:String>
+    <sys:String x:Key="Str_NP_CreditAlbumTrack">Album &amp; Track Number</sys:String>
+    <sys:String x:Key="Str_NP_CreditGenreYear">Genre &amp; Release Year</sys:String>
+    <sys:String x:Key="Str_NP_CreditCodec">Codec &amp; Container</sys:String>
+    <sys:String x:Key="Str_NP_CreditResolution">Resolution &amp; Bitrate</sys:String>
+    <sys:String x:Key="Str_NP_CreditFileInfo">File Size &amp; Name</sys:String>
+    <sys:String x:Key="Str_NP_CreditCopyright">Copyright / Notes</sys:String>
+    <sys:String x:Key="Str_NP_SignalChainTitle">Bit-Perfect Audio Signal Path</sys:String>
+    <sys:String x:Key="Str_NP_SignalNodeSource">1. Source File</sys:String>
+    <sys:String x:Key="Str_NP_SignalNodeDecoder">2. Precision Decoder</sys:String>
+    <sys:String x:Key="Str_NP_SignalNodeTransport">3. Audio Transport</sys:String>
+    <sys:String x:Key="Str_NP_SignalNodeEndpoint">4. DAC Endpoint</sys:String>
+    <sys:String x:Key="Str_NP_LyricsTitle">Embedded Lyrics</sys:String>
+    <sys:String x:Key="Str_NP_ExpandTip">Open track details &amp; mastering credits</sys:String>
 </ResourceDictionary>

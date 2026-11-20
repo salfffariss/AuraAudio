@@ -1,0 +1,170 @@
+<UserControl x:Class="AuraAudio.UI.Controls.SignalPathFlyout"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="clr-namespace:AuraAudio.Core.Models"
+             x:Name="Root">
+
+    <Border Width="328"
+            Padding="16,14"
+            CornerRadius="{StaticResource Radius.Sheet}"
+            Background="{StaticResource Brush.Elevated}"
+            BorderBrush="{StaticResource Brush.Border.Control}"
+            BorderThickness="1">
+        <StackPanel>
+            <!-- Header Row: Title + Monochrome Quality Pill -->
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                    <TextBlock Text="Signal Path"
+                               Style="{StaticResource Text.Headline}"
+                               Foreground="{StaticResource Brush.Text.Peak}" />
+                    <TextBlock Text="{Binding OutputDeviceName}"
+                               Style="{StaticResource Text.Callout}"
+                               FontSize="11"
+                               Foreground="{StaticResource Brush.Text.Tertiary}"
+                               Margin="0,2,0,0" />
+                </StackPanel>
+
+                <!-- Quality Badge (Solid White = Bit-Perfect; Outlined = Enhanced / Shared) -->
+                <Border x:Name="QualityPill"
+                        Grid.Column="1"
+                        VerticalAlignment="Top"
+                        Padding="8,3"
+                        CornerRadius="{StaticResource Radius.Badge}"
+                        BorderThickness="1">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="{StaticResource Brush.Surface}" />
+                            <Setter Property="BorderBrush" Value="{StaticResource Brush.Border.ControlHover}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentSignalPath.OverallQuality}" Value="{x:Static models:SignalPathQuality.BitPerfect}">
+                                    <Setter Property="Background" Value="{StaticResource Brush.Selected.PillFill}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource Brush.Selected.PillFill}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Text="{Binding SignalPathBadge}"
+                               FontSize="9"
+                               FontWeight="Bold">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Text.TabularMono}">
+                                <Setter Property="Foreground" Value="{StaticResource Brush.Text.Primary}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentSignalPath.OverallQuality}" Value="{x:Static models:SignalPathQuality.BitPerfect}">
+                                        <Setter Property="Foreground" Value="{StaticResource Brush.Selected.PillInk}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Border>
+            </Grid>
+
+            <!-- Active 4-Node Signal Chain -->
+            <ItemsControl ItemsSource="{Binding CurrentSignalPath.Steps}"
+                          Visibility="{Binding CurrentSignalPath, Converter={StaticResource NullToVisibilityConverter}}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type models:SignalStep}">
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="22" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Node Indicator Dot + Vertical Rail -->
+                            <Grid Grid.Column="0">
+                                <Border Width="1"
+                                        Margin="0,12,0,-10"
+                                        HorizontalAlignment="Center"
+                                        Background="{StaticResource Brush.Border.Hairline}" />
+                                <Ellipse x:Name="NodeDot"
+                                         Width="9" Height="9"
+                                         Margin="0,4,0,0"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Top"
+                                         Fill="{StaticResource Brush.Icon.Active}"
+                                         Stroke="{StaticResource Brush.Icon.Active}"
+                                         StrokeThickness="1.5" />
+                            </Grid>
+
+                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                <TextBlock Text="{Binding Name}"
+                                           Style="{StaticResource Text.Subheadline}"
+                                           FontSize="12"
+                                           Foreground="{StaticResource Brush.Text.Primary}" />
+                                <TextBlock Text="{Binding Description}"
+                                           Style="{StaticResource Text.Callout}"
+                                           FontSize="11"
+                                           Foreground="{StaticResource Brush.Text.Secondary}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,1,0,0" />
+                            </StackPanel>
+                        </Grid>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding Quality}" Value="{x:Static models:SignalPathQuality.Enhanced}">
+                                <Setter TargetName="NodeDot" Property="Fill" Value="{StaticResource Brush.Elevated}" />
+                                <Setter TargetName="NodeDot" Property="Stroke" Value="{StaticResource Brush.Icon.Active}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Quality}" Value="{x:Static models:SignalPathQuality.ResampledOrDegraded}">
+                                <Setter TargetName="NodeDot" Property="Fill" Value="{StaticResource Brush.Elevated}" />
+                                <Setter TargetName="NodeDot" Property="Stroke" Value="{StaticResource Brush.Icon.Muted}" />
+                                <Setter TargetName="NodeDot" Property="StrokeDashArray" Value="2 1" />
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Idle / Standby Summary when no track is actively streaming -->
+            <Border Padding="12,10"
+                    Margin="0,0,0,10"
+                    CornerRadius="{StaticResource Radius.Card}"
+                    Background="{StaticResource Brush.Surface}"
+                    BorderBrush="{StaticResource Brush.Border.Hairline}"
+                    BorderThickness="1"
+                    Visibility="{Binding CurrentSignalPath, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Inverse}">
+                <StackPanel>
+                    <TextBlock Text="{Binding SidebarDriverTitle}"
+                               Style="{StaticResource Text.Subheadline}"
+                               Foreground="{StaticResource Brush.Text.Primary}" />
+                    <TextBlock Text="{Binding SidebarDriverSubtitle}"
+                               Style="{StaticResource Text.Callout}"
+                               Foreground="{StaticResource Brush.Text.Secondary}"
+                               Margin="0,2,0,4" />
+                    <TextBlock Text="Start playback to audit each node in the live bit-perfect chain."
+                               Style="{StaticResource Text.Callout}"
+                               FontSize="11"
+                               Foreground="{StaticResource Brush.Text.Tertiary}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- Footer Links -->
+            <Border Padding="0,10,0,0"
+                    BorderBrush="{StaticResource Brush.Border.Hairline}"
+                    BorderThickness="0,1,0,0">
+                <Grid>
+                    <Button Style="{StaticResource Style.Button.Ghost}"
+                            Height="28"
+                            Padding="8,0"
+                            HorizontalAlignment="Left"
+                            FontSize="12"
+                            Content="Audio Inspector ›"
+                            Click="OpenInspector_Click" />
+                    <Button Style="{StaticResource Style.Button.Ghost}"
+                            Height="28"
+                            Padding="8,0"
+                            HorizontalAlignment="Right"
+                            FontSize="12"
+                            Content="Audio Output ›"
+                            Click="OpenAudioSettings_Click" />
+                </Grid>
+            </Border>
+        </StackPanel>
+    </Border>
+</UserControl>

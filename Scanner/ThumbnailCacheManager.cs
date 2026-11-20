@@ -80,10 +80,11 @@ public class ThumbnailCacheManager
             graphics.DrawImage(originalBitmap, new Rectangle(0, 0, targetWidth, targetHeight));
         }
 
-        // Kompresi JPEG kualitas 85% (Keseimbangan visual tajam dan ukuran file super kecil ~20KB)
+        // Kompresi JPEG kualitas tinggi (92% untuk Hero Artwork Large 600x600, 85% untuk Grid/Mini)
+        long jpegQuality = size == ThumbnailSize.Large ? 92L : 85L;
         var encoder = GetEncoder(ImageFormat.Jpeg);
         using var encoderParams = new EncoderParameters(1);
-        encoderParams.Param[0] = new EncoderParameter(Encoder.Quality, 85L);
+        encoderParams.Param[0] = new EncoderParameter(Encoder.Quality, jpegQuality);
 
         resizedBitmap.Save(filePath, encoder, encoderParams);
 

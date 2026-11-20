@@ -6,94 +6,87 @@ using System.Windows.Interop;
 namespace AuraAudio.UI.Helpers;
 
 /// <summary>
-/// Pembantu Windows Desktop Window Manager (DWM) untuk mengaktifkan efek visual modern
-/// Windows 11 (Mica, Dark Acrylic, Immersive Dark Mode, dan Custom Non-Client Frame).
+/// Windows 11 DWM helper enforcing pure-monochrome (R = G = B) solid window chrome:
+/// immersive dark mode, disabled system backdrop (no Mica/Acrylic wallpaper hue bleed),
+/// neutral caption/border COLORREFs matching NeutralTokens.xaml, and hardware rounded corners.
 /// </summary>
 public static class DwmBackdropHelper
 {
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWA_BORDER_COLOR = 34;
+    private const int DWMWA_CAPTION_COLOR = 35;
     private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
-    private const int DWMWA_MICA_EFFECT = 1029;
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MARGINS
+    private const int DWMWCP_DONOTROUND = 1;
+    private const int DWMWCP_ROUND = 2;
+
+    // Pure neutral COLORREFs (0x00BBGGRR where R = G = B, matching NeutralTokens.xaml)
+    private const int CAPTION_COLOR_NEUTRAL = 0x000B0B0B; // Neutral.05
+    private const int BORDER_COLOR_NEUTRAL = 0x00323232;  // Neutral.25
+
+    public enum BackdropType
     {
-        public int cxLeftWidth;
-        public int cxRightWidth;
-        public int cyTopHeight;
-        public int cyBottomHeight;
-
-        public MARGINS(int left, int right, int top, int bottom)
-        {
-            cxLeftWidth = left;
-            cxRightWidth = right;
-            cyTopHeight = top;
-            cyBottomHeight = bottom;
-        }
+        None = 1
     }
 
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmExtendFrameIntoClientArea(IntPtr hWnd, ref MARGINS pMarInset);
-
-    public enum BackdropType
-    {
-        None = 1,
-        Mica = 2,
-        Acrylic = 3,
-        Tabbed = 4 // Mica Alt
-    }
-
     /// <summary>
-    /// Menerapkan efek Immersive Dark Mode dan Mica/Acrylic backdrop pada Window WPF.
+    /// Applies solid pure-neutral Windows 11 chrome (DarkMode = 1, SystemBackdrop = None,
+    /// caption #0B0B0B, border #323232, hardware rounded corners when unmaximized).
     /// </summary>
-    public static bool ApplyBackdrop(Window window, BackdropType backdrop = BackdropType.Mica)
+    public static void ApplyChrome(Window window)
     {
         var helper = new WindowInteropHelper(window);
         IntPtr hwnd = helper.Handle;
 
         if (hwnd == IntPtr.Zero)
         {
-            // Jika dipanggil sebelum SourceInitialized
-            window.SourceInitialized += (s, e) => ApplyBackdrop(window, backdrop);
-            return false;
+            window.SourceInitialized += (_, _) => ApplyChrome(window);
+            return;
         }
 
         try
         {
-            // 1. Aktifkan Mode Gelap Windows 11 (Immersive Dark Mode)
             int darkMode = 1;
             DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
 
-            // 2. Terapkan System Backdrop (Mica / Acrylic)
-            int backdropValue = (int)backdrop;
-            int hr = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdropValue, sizeof(int));
+            int noneBackdrop = (int)BackdropType.None;
+            DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref noneBackdrop, sizeof(int));
 
-            if (hr != 0)
-            {
-                // Fallback untuk Windows 11 build awal (22000)
-                int trueVal = 1;
-                DwmSetWindowAttribute(hwnd, DWMWA_MICA_EFFECT, ref trueVal, sizeof(int));
-            }
+            int captionColor = CAPTION_COLOR_NEUTRAL;
+            DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref captionColor, sizeof(int));
 
-            // 3. Perluas bingkai kaca (Glass Frame) ke seluruh area jendela
-            var margins = new MARGINS(-1, -1, -1, -1);
-            DwmExtendFrameIntoClientArea(hwnd, ref margins);
+            int borderColor = BORDER_COLOR_NEUTRAL;
+            DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref borderColor, sizeof(int));
 
-            // 4. Set komposisi WPF target ke transparan agar DWM Mica menembus
-            var source = HwndSource.FromHwnd(hwnd);
-            if (source?.CompositionTarget != null)
-            {
-                source.CompositionTarget.BackgroundColor = System.Windows.Media.Colors.Transparent;
-            }
-
-            return true;
+            SetCornerPreference(window, window.WindowState == WindowState.Maximized);
         }
         catch
         {
-            return false;
+            // Safely ignored on pre-Windows 11 hosts.
+        }
+    }
+
+    /// <summary>
+    /// Updates hardware window corner rounding (rounded in Normal state, square when Maximized).
+    /// </summary>
+    public static void SetCornerPreference(Window window, bool isMaximized)
+    {
+        var helper = new WindowInteropHelper(window);
+        IntPtr hwnd = helper.Handle;
+        if (hwnd == IntPtr.Zero) return;
+
+        try
+        {
+            int cornerPref = isMaximized ? DWMWCP_DONOTROUND : DWMWCP_ROUND;
+            DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPref, sizeof(int));
+        }
+        catch
+        {
+            // Safely ignored on Windows 10.
         }
     }
 }

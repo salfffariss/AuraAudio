@@ -198,7 +198,6 @@ public partial class App : Application
                 sb.AppendLine($"    Derau Ultrasonik : {report.UltrasonicNoiseFloorDbFS:F1} dBFS (σ={report.UltrasonicNoiseStdDevDb:F1} dB) {(report.IsDitherDetected ? "[TPDF DITHER 16-BIT DETECTED]" : "")}");
                 sb.AppendLine($"    Entropi LSB      : {report.LsbEntropy:F2} / 8.00 bit (Aktivitas: {report.LsbActivityPercentage:F1}%)");
                 sb.AppendLine($"    VONIS KEASLIAN   : {report.VerdictBadge} ({report.Verdict})");
-                sb.AppendLine($"    Warna Badge      : {report.VerdictColorHex}");
                 sb.AppendLine($"    Penjelasan       : {report.Explanation}");
             }
             catch (Exception ex)
