@@ -172,7 +172,7 @@
                         CommandParameter="About">
                     <StackPanel>
                         <TextBlock Text="About" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
-                        <TextBlock Text="AuraAudio v2.0.0 version info, audio engine statistics, and keyboard shortcuts"
+                        <TextBlock Text="AuraAudio version info, audio engine statistics, and keyboard shortcuts"
                                    Style="{StaticResource Text.Callout}"
                                    Margin="0,3,0,0" />
                     </StackPanel>

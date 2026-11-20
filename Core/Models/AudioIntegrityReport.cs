@@ -441,27 +441,33 @@ public record AudioIntegrityReport
             return "1-bit DSD stream cannot be verified directly from PCM spectral bins without multi-stage decimation.";
         }
 
+        const string aacOpusCaveat = " Note: high-bitrate AAC/Opus without a hard lowpass cannot be distinguished by spectral analysis alone.";
         uint reachHz = UpperEnvelopeReachHz ?? DetectedCutoffHz;
+        double dropVal = DropAcrossKneeDb ?? 0.0;
+        double cliffVal = CliffDropDb ?? 0.0;
+
         return Verdict switch
         {
             AuthenticityVerdict.VerifiedLossless =>
-                $"Verified genuine {SourceSpec.FormattedBadge}: no MP3 cutoff or CD upsampling wall found. Active energy reaches ~{NyquistLimitHz / 1000.0:F1} kHz.",
+                $"No lossy cutoff or CD upsampling artifacts detected for {SourceSpec.FormattedBadge}; measured energy extends up to ~{NyquistLimitHz / 1000.0:F1} kHz.{aacOpusCaveat}",
             AuthenticityVerdict.AcousticNaturalRollOff =>
-                $"Genuine soft acoustic recording: harmonics taper naturally (reach ~{reachHz / 1000.0:F1} kHz) with no brickwall cutoff filter.",
+                $"No artificial brickwall filter artifacts detected: harmonics taper smoothly (reach ~{reachHz / 1000.0:F1} kHz), consistent with soft acoustic material.{aacOpusCaveat}",
             AuthenticityVerdict.HybridMaster =>
-                "Genuine hybrid studio master: combines 44.1 kHz sample instruments with active ultrasonic studio harmonics above 35 kHz.",
+                $"Spectrum is consistent with a hybrid studio production: 44.1 kHz band-limited elements combined with active ultrasonic energy above 35 kHz.{aacOpusCaveat}",
             AuthenticityVerdict.UpscaledFromCd =>
-                $"Container is {SourceSpec.SampleRateHz / 1000.0:F1} kHz, but audio stops sharply at 22.05 kHz (upscaled from a 44.1 kHz CD master).",
+                (dropVal < 10.0 && cliffVal < 15.0)
+                    ? $"Likely consistent with upsampling from a 44.1 kHz CD master: container is {SourceSpec.SampleRateHz / 1000.0:F1} kHz, with a transition near 22.05 kHz (drop {dropVal:F1} dB)."
+                    : $"Consistent with upsampling from a 44.1 kHz CD master: container is {SourceSpec.SampleRateHz / 1000.0:F1} kHz, but measured energy drops sharply near 22.05 kHz.",
             AuthenticityVerdict.Dithered16BitUpscale =>
-                $"Container is 24-bit, but ultrasonic bands show a flat 16-bit TPDF dither floor ({UltrasonicNoiseFloorDbFS:F1} dBFS). Exported from a 16-bit master.",
+                $"Consistent with an export from a 16-bit TPDF-dithered master: container is 24-bit, while upper bands show a flat 16-bit dither floor ({UltrasonicNoiseFloorDbFS:F1} dBFS).",
             AuthenticityVerdict.ZeroPadded24Bit =>
-                $"Fake 24-bit container: lowest 8 bits are zero-padded ({LsbActivityPercentage:F1}% active, {LsbEntropy:F2}/8 bit entropy). Real resolution is 16-bit.",
+                $"Consistent with a zero-padded 16-bit source in a 24-bit container: lowest 8 bits are empty ({LsbActivityPercentage:F1}% active, {LsbEntropy:F2}/8 bit entropy).",
             AuthenticityVerdict.SuspectedUpscaledLossy =>
-                $"Fake lossless warning: spectrum cuts off sharply at ~{DetectedCutoffHz / 1000.0:F1} kHz (typical MP3/lossy transcode or bandwidth-limited source).",
+                $"Consistent with a lossy transcode (MP3/AAC) or bandwidth-limited source: sharp frequency cutoff detected at ~{DetectedCutoffHz / 1000.0:F1} kHz.",
             AuthenticityVerdict.StandardLossy =>
                 $"Standard lossy file ({SourceSpec.Codec}). Measured high-frequency limit is ~{DetectedCutoffHz / 1000.0:F1} kHz from perceptual compression.",
             AuthenticityVerdict.Inconclusive =>
-                $"Inconclusive result: unusual drop around ~{DetectedCutoffHz / 1000.0:F1} kHz or resampler imaging detected. Inspect the graph manually.",
+                $"Inconclusive result: spectral transition around ~{DetectedCutoffHz / 1000.0:F1} kHz or potential resampler imaging requires manual inspection.",
             _ => Explanation
         };
     }

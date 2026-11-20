@@ -1,5 +1,5 @@
-﻿# AuraAudio v2.0.0 — End-to-End Pure-Monochrome UIA Smoke Test
-# Validates every v2.0.0 shell surface, DWM neutral attributes, rail/right-pane/FullScreen/MiniPlayer
+﻿# AuraAudio v2.0.1 - End-to-End Pure-Monochrome UIA Smoke Test
+# Validates every v2.0.1 shell surface, DWM neutral attributes, rail/right-pane/FullScreen/MiniPlayer
 # modes, SearchHints + 5 scopes, Settings BreadcrumbBar + categories, Inspector FFT canvas,
 # 4-tab Get Info sheet, and clean zero-crash shutdown via language-independent AutomationIds (Part D.9).
 
@@ -79,10 +79,10 @@ try {
 
     $rect = $root.Current.BoundingRectangle
     Write-Output ("Window: Title='{0}', Rect={1}x{2}" -f $root.Current.Name, [int]$rect.Width, [int]$rect.Height)
-    if ($root.Current.Name -notlike "*v2.0.0*") {
-        throw "Expected MainWindow title to include 'v2.0.0', got '$($root.Current.Name)'"
+    if ($root.Current.Name -notlike "*v2.0.1*") {
+        throw "Expected MainWindow title to include 'v2.0.1', got '$($root.Current.Name)'"
     }
-    Write-Output "PASS [Version]: MainWindow title displays v2.0.0"
+    Write-Output "PASS [Version]: MainWindow title displays v2.0.1"
 
     # 1. Verify Windows 11 DWM pure-neutral chrome attributes (DarkMode == 1, SystemBackdrop == 1 None)
     $darkAttr = 0
@@ -319,7 +319,7 @@ try {
     if ($crashExists) { Get-Content $crashLog; throw "Crash log detected!" }
     if ($startupExists) { Get-Content $startupLog; throw "Startup error log detected!" }
 
-    Write-Output "SMOKE TEST PASSED (v2.0.0 — ALL CHECKS GREEN)"
+    Write-Output "SMOKE TEST PASSED (v2.0.1 - ALL CHECKS GREEN)"
 }
 finally {
     if ($proc -ne $null -and -not $proc.HasExited) {

@@ -23,9 +23,105 @@ namespace AuraAudio.Audio.Authenticity;
 /// </summary>
 public static class NyquistSpectrumAnalyzer
 {
+    // =========================================================================
+    // NAMED FORENSIC CALIBRATION CONSTANTS (All thresholds documented & synced
+    // with docs/METODE_ANALISIS_KEASLIAN_AUDIO.md)
+    // =========================================================================
+
+    // FFT & Windowing
+    // Note on dBFS scale: magnitude normalization uses |X| / (N/2) without Hann coherent-gain
+    // compensation (mean(Hann) = 0.5 -> -6.02 dB offset on full-scale pure sine vs calibrated meters).
+    // All internal thresholds below (including TPDF dither at -130.7 dBFS) are calibrated on this scale.
     private const int FftSize = 4096;
     private const int DefaultWindowsToAverage = 32;
-    private const int BitDepthSampleSize = 300_000; // ~3.1 detik audio pada 96 kHz
+    private const int BitDepthSampleSize = 300_000; // ~3.1 s at 96 kHz, ~6.8 s at 44.1 kHz
+    private const double PowerFloorLinear = 1e-16;  // -160.0 dBFS mathematical floor
+
+    // Band averaging half-widths (replaces single-bin lookups for stability)
+    private const double BandHalfWidthNarrowHz = 100.0;   // 200 Hz band around 22.05k / 22.5k / 24k
+    private const double BandHalfWidthStandardHz = 250.0; // 500 Hz band around 16k / 20k
+    private const double BandHalfWidthHiResHz = 500.0;    // 1000 Hz band around 35k / 40k
+    private const double BandHalfWidthRefHz = 1_500.0;    // 1–4 kHz reference passband
+
+    // 24-in-32 alignment detection (4,096 frames ≈ 42 ms @ 96 kHz / 93 ms @ 44.1 kHz)
+    private const int AlignmentProbeMaxFrames = 4_096;
+    private const double AlignmentZeroByte0MinRatio = 0.98;
+    private const int AlignmentMinNonSignExtFrames = 3;
+
+    // 16-bit TPDF dither calibration (derived: 10*log10(0.25 * (2/65536)^2) + 10*log10(1.5/4096) = -130.7 dBFS)
+    private const double DitherTpdf16BitLevelDbFS = -130.7;
+    private const double DitherDetectionToleranceDb = 4.0;
+    private const double DitherMaxStdDevDb = 2.2;
+    private const double DitherMaxUpperBandDbFS = -122.0;
+
+    // Dead digital silence ceiling (mathematical -160 dBFS zeroed upper bands from brickwall filters)
+    private const double DeadSilenceFloorDbFS = -152.0;
+    private const double DeadSilenceMaxStdDevDb = 2.5;
+    private const double DeadSilenceBandDbFS = -150.0;
+
+    // CD upsampling & transition slope thresholds
+    private const uint CdNyquistHz = 22_050;
+    private const uint CdKneeMinHz = 21_000;
+    private const uint CdKneeMaxHz = 22_600;
+    private const uint CdCliffMinHz = 21_000; // Widened from 21.5k to catch 21.3–21.4k resampler cliffs on soft material
+    private const uint CdCliffMaxHz = 22_700;
+    private const double CdCliffMinDropDb = 8.0;
+    private const double CdBrickwallMaxSlopeDbPerOct = -36.0;
+    private const double NaturalRollOffMinSlopeDbPerOct = -30.0;
+    private const double CdUpsampleHedgeDropThresholdDb = 10.0;
+    private const double CdUpsampleHedgeCliffThresholdDb = 15.0;
+
+    // Lossy cutoff detection (primary dual-gate + dead-zero secondary scan for quiet acoustic material)
+    private const double KneeDropBelowRefDb = 48.0;
+    private const uint LossyKneeMaxHz = 17_500;
+    private const double LossySteepnessThresholdDbPerOct = -60.0;
+    private const double LossyDropAcrossKneeMinDb = 20.0;
+    private const double RelP16kLossyThresholdDb = -45.0;
+    private const double RelP20kLossyThresholdDb = -50.0;
+    private const double DeadZeroLossyScanMinHz = 15_000.0;
+    private const double DeadZeroLossyScanMaxHz = 19_500.0;
+    private const double DeadZeroLossyScanStepHz = 250.0;
+    private const double DeadZeroLossyMinDropDb = 20.0;
+
+    // Smooth acoustic roll-off criteria (distinguishes soft acoustic masters from artificial lowpass filters)
+    private const uint AcousticMinEffectiveReachHz = 9_000;
+    private const double AcousticMaxDropAcrossKneeDb = 12.5;
+    private const double AcousticMaxMidTrebleCliffDb = 13.5;
+    private const double AcousticMinKneeSteepnessDbPerOct = -44.0;
+    private const double AcousticMinTrebleDecaySlopeDbPerOct = -42.0;
+    private const double AcousticMinLowTrebleSlopeDbPerOct = -38.0;
+
+    // Hi-Res ultrasonic continuation & hybrid studio production thresholds
+    private const uint HiResSmoothContinuationMinKneeHz = 24_000;
+    private const double HiResSmoothContinuationMaxDropDb = 10.0;
+    private const double HiResSmoothContinuationMinSteepnessDbPerOct = -40.0;
+    private const double HiResSmoothContinuationMaxImagingR = 0.45;
+    private const double HiResP24kActiveDbFS = -80.0;
+    private const double HiResP35kAcousticMaxDbFS = -100.0;
+    private const double HiResP35kVerifiedDbFS = -105.0;
+    private const double HiResP40kVerifiedDbFS = -108.0;
+    private const double HybridP22_5kMaxDbFS = -85.0;
+    private const double HybridP35kMinDbFS = -90.0;
+    private const double HybridP40kMinDbFS = -95.0;
+    private const double HybridMinNoiseStdDevDb = 2.5;
+
+    // Resampler imaging / aliasing mirror detection
+    private const double ImagingMinCorrelation = 0.65;
+    private const double ImagingMaxAttenuationDb = 15.0;
+    private const double ImagingMinUpperMeanDbFS = -128.0;
+    private const double FlatMirrorMinCorrelation = 0.30;
+    private const double FlatMirrorMaxAttenuationDb = 3.0;
+    private const double FlatMirrorMinUpperMeanDbFS = -85.0;
+
+    // 48 kHz ultrasonic tail guard & 44.1 kHz steep-drop guard
+    private const double Tail48kMinP22_5kDbFS = -102.0;
+    private const double Tail48kMinP23_5kDbFS = -108.0;
+    private const double Tail48kMaxDropDb = 10.0;
+    private const double Tail48kMaxCliffDb = 16.0;
+    private const double Cd44kInconclusiveDropDb = 25.0;
+
+    private const string AacOpusCaveatId =
+        "Catatan: berkas AAC/Opus bitrate tinggi tanpa lowpass kaku tidak dapat dibedakan melalui analisis spektrum saja.";
 
     // Window Hann precomputed untuk efisiensi instan tanpa alokasi memori berulang
     private static readonly double[] HannWindow = new double[FftSize];
@@ -152,30 +248,39 @@ public static class NyquistSpectrumAnalyzer
         if (sourceSpec.Codec is AudioCodec.MP3 or AudioCodec.AAC or AudioCodec.OGG_VORBIS or AudioCodec.OPUS)
         {
             double lossySeekSeconds = Math.Min(45.0, stream.TotalTime.TotalSeconds * 0.40);
-            try { stream.CurrentTime = TimeSpan.FromSeconds(lossySeekSeconds); } catch { }
+            bool lossySeekOk = false;
+            try
+            {
+                stream.CurrentTime = TimeSpan.FromSeconds(lossySeekSeconds);
+                lossySeekOk = true;
+            }
+            catch
+            {
+                lossySeekOk = false;
+            }
 
             double[] avgPowerLossy = ComputeAveragePowerSpectrum(stream, FftSize, DefaultWindowsToAverage, cancellationToken);
-            var (envPowerLossy, upperReachLossy) = ComputeMultiSegmentUpperEnvelope(stream, avgPowerLossy, FftSize, (double)stream.WaveFormat.SampleRate / FftSize, (uint)Math.Max(1, stream.WaveFormat.SampleRate / 2), cancellationToken);
+            var (_, upperReachLossy) = ComputeMultiSegmentUpperEnvelope(stream, avgPowerLossy, FftSize, (double)stream.WaveFormat.SampleRate / FftSize, (uint)Math.Max(1, stream.WaveFormat.SampleRate / 2), cancellationToken);
             double[] dbBinsLossy = new double[avgPowerLossy.Length];
             for (int i = 0; i < avgPowerLossy.Length; i++)
             {
-                dbBinsLossy[i] = 10.0 * Math.Log10(Math.Max(1e-16, avgPowerLossy[i]));
+                dbBinsLossy[i] = 10.0 * Math.Log10(Math.Max(PowerFloorLinear, avgPowerLossy[i]));
             }
             double binResLossy = (double)stream.WaveFormat.SampleRate / FftSize;
             uint lossyNyquist = (uint)Math.Max(1, stream.WaveFormat.SampleRate / 2);
 
-            double pRefLossy = GetBandPowerDb(2_500, 1_500, avgPowerLossy, binResLossy);
-            uint measuredCutoff = DetectKneeCutoffHz(avgPowerLossy, binResLossy, pRefLossy, lossyNyquist, 48.0);
+            double pRefLossy = GetBandPowerDb(2_500, BandHalfWidthRefHz, avgPowerLossy, binResLossy);
+            uint measuredCutoff = DetectKneeCutoffHz(avgPowerLossy, binResLossy, pRefLossy, lossyNyquist, KneeDropBelowRefDb);
             double slopeLossy = (stream.WaveFormat.SampleRate <= 44_100)
                 ? ComputeSpectralSlope(19_000, 22_000, avgPowerLossy, binResLossy)
                 : ComputeSpectralSlope(20_000, 22_050, avgPowerLossy, binResLossy);
             var (noiseFloorLossy, sigmaLossy, isDitherLossy) = EvaluateQuantizationNoiseFloor(avgPowerLossy, binResLossy, lossyNyquist);
-            double p22kLossy = GetBandPowerDb(22_050, 100, avgPowerLossy, binResLossy);
+            double p22kLossy = GetBandPowerDb(22_050, BandHalfWidthNarrowHz, avgPowerLossy, binResLossy);
             double pNyqLossy = GetBandPowerDb(Math.Max(1000, lossyNyquist - binResLossy), 200, avgPowerLossy, binResLossy);
             double kneeSteepnessLossy = ComputeKneeSteepness(avgPowerLossy, binResLossy, measuredCutoff);
             double dropAcrossKneeLossy = ComputeDropAcrossKnee(avgPowerLossy, binResLossy, measuredCutoff);
-            double p16kLossy = GetPowerAtFreq(16_000, avgPowerLossy, binResLossy);
-            double p20kLossy = GetPowerAtFreq(20_000, avgPowerLossy, binResLossy);
+            double p16kLossy = GetBandPowerDb(16_000, BandHalfWidthStandardHz, avgPowerLossy, binResLossy);
+            double p20kLossy = GetBandPowerDb(20_000, BandHalfWidthStandardHz, avgPowerLossy, binResLossy);
             double relP16kLossy = p16kLossy - pRefLossy;
             double relP20kLossy = p20kLossy - pRefLossy;
 
@@ -184,7 +289,7 @@ public static class NyquistSpectrumAnalyzer
                 hwSpec,
                 AuthenticityVerdict.StandardLossy,
                 measuredCutoff,
-                $"Format terkompresi lossy standar ({sourceSpec.Codec}). Pemotongan frekuensi di ~{measuredCutoff / 1000.0:F1} kHz adalah karakteristik bawaan algoritma kompresi psikoakustik.",
+                $"Format terkompresi lossy standar ({sourceSpec.Codec}). Pemotongan frekuensi terukur di ~{measuredCutoff / 1000.0:F1} kHz sesuai karakteristik kompresi psikoakustik.",
                 isTrue24Bit: false,
                 lsbActivityPercentage: 0.0,
                 spectrumDbBins: dbBinsLossy,
@@ -192,8 +297,8 @@ public static class NyquistSpectrumAnalyzer
                 ultrasonicNoiseFloorDbFS: noiseFloorLossy,
                 isDitherDetected: isDitherLossy,
                 lsbEntropy: 0.0,
-                analysisTimestamp: TimeSpan.FromSeconds(lossySeekSeconds),
-                analysisPositionPercentage: 40.0,
+                analysisTimestamp: lossySeekOk ? TimeSpan.FromSeconds(lossySeekSeconds) : TimeSpan.Zero,
+                analysisPositionPercentage: lossySeekOk ? 40.0 : 0.0,
                 powerAt22kDbFS: Math.Round(p22kLossy, 1),
                 powerAtNyquistDbFS: Math.Round(pNyqLossy, 1),
                 ultrasonicNoiseStdDevDb: sigmaLossy,
@@ -218,28 +323,37 @@ public static class NyquistSpectrumAnalyzer
         int channels = Math.Max(1, stream.WaveFormat.Channels);
 
         // 3. Multi-Window Energy Scan: Cari bagian lagu paling dinamis/lantang (RMS tertinggi)
-        var (loudestSectionTime, loudestFraction) = FindLoudestSectionTime(stream, cancellationToken);
+        var (loudestSectionTime, loudestFraction, scanSeekSucceeded) = FindLoudestSectionTime(stream, cancellationToken);
+        bool bitDepthSeekOk = false;
         try
         {
             stream.CurrentTime = loudestSectionTime;
+            bitDepthSeekOk = true;
         }
         catch
         {
-            // Fallback aman jika stream tidak mendukung seek
+            bitDepthSeekOk = false;
         }
 
         // 4. Audit Integritas Bit-Depth Forensik (300.000 sampel mentah + Shannon Entropy untuk 16-bit & 24-bit)
         var (isTrue24Bit, lsbPercentage, lsbEntropy, isZeroPadded, lsbOffset) = EvaluateBitDepthForensic(
             stream, BitDepthSampleSize, blockAlign, bitsPerSample, channels);
 
-        // Kembalikan posisi stream ke titik analisis FFT
+        // Kembalikan posisi stream ke titik analisis FFT (catat kegagalan seek secara transparan)
+        bool fftSeekOk = false;
         try
         {
             stream.CurrentTime = loudestSectionTime;
+            fftSeekOk = true;
         }
         catch
         {
+            fftSeekOk = false;
         }
+
+        bool seekSucceeded = scanSeekSucceeded && bitDepthSeekOk && fftSeekOk;
+        TimeSpan reportedTimestamp = seekSucceeded ? loudestSectionTime : TimeSpan.Zero;
+        double reportedPositionPct = seekSucceeded ? Math.Round(loudestFraction * 100.0, 1) : 0.0;
 
         // 5. Uji Spektrum Frekuensi FFT Multi-Window + Amplop Persentil Lintas Lagu
         double[] avgPower = ComputeAveragePowerSpectrum(stream, FftSize, DefaultWindowsToAverage, cancellationToken, lsbOffset);
@@ -249,12 +363,12 @@ public static class NyquistSpectrumAnalyzer
         double[] dbBins = new double[avgPower.Length];
         for (int i = 0; i < avgPower.Length; i++)
         {
-            dbBins[i] = 10.0 * Math.Log10(Math.Max(1e-16, avgPower[i]));
+            dbBins[i] = 10.0 * Math.Log10(Math.Max(PowerFloorLinear, avgPower[i]));
         }
 
-        // 6. Pengukuran Metrik Forensik Presisi
-        double pRef = GetBandPowerDb(2_500, 1_500, avgPower, binResolution);
-        uint detectedKneeHz = DetectKneeCutoffHz(avgPower, binResolution, pRef, nyquistLimitHz, 48.0);
+        // 6. Pengukuran Metrik Forensik Presisi (seluruh level pita memakai rata-rata daya linear GetBandPowerDb)
+        double pRef = GetBandPowerDb(2_500, BandHalfWidthRefHz, avgPower, binResolution);
+        uint detectedKneeHz = DetectKneeCutoffHz(avgPower, binResolution, pRef, nyquistLimitHz, KneeDropBelowRefDb);
         double kneeSteepness = ComputeKneeSteepness(avgPower, binResolution, detectedKneeHz);
         double dropAcrossKnee = ComputeDropAcrossKnee(avgPower, binResolution, detectedKneeHz);
 
@@ -262,6 +376,8 @@ public static class NyquistSpectrumAnalyzer
         var (cliffHz, cliffDropDb) = ComputeCliff(avgPower, binResolution, nyquistLimitHz);
         var (_, midTrebleCliffDrop) = ComputeMaxMidTrebleCliff(avgPower, envPower, binResolution, nyquistLimitHz);
         double trebleDecaySlope = ComputeTrebleDecaySlope(envPower, binResolution, detectedKneeHz);
+        var (isDeadZeroLossyCutoff, deadZeroLossyCutoffHz, deadZeroLossySteepness, deadZeroLossyDropDb) =
+            ComputeDeadZeroLossyBrickwall(avgPower, binResolution, nyquistLimitHz);
 
         double slopeCdTransition = (sampleRate <= 44_100)
             ? ComputeSpectralSlope(19_000, 22_000, avgPower, binResolution)
@@ -269,103 +385,151 @@ public static class NyquistSpectrumAnalyzer
 
         var (noiseFloorDbFS, noiseStdDevDb, isDitherShelfDetected) = EvaluateQuantizationNoiseFloor(avgPower, binResolution, nyquistLimitHz);
 
-        double p16k     = GetPowerAtFreq(16_000, avgPower, binResolution);
-        double p20k     = GetPowerAtFreq(20_000, avgPower, binResolution);
+        double p16k     = GetBandPowerDb(16_000, BandHalfWidthStandardHz, avgPower, binResolution);
+        double p20k     = GetBandPowerDb(20_000, BandHalfWidthStandardHz, avgPower, binResolution);
         double p20kEnv  = GetBandPowerDb(20_500, 300, envPower, binResolution);
-        double p22k     = GetBandPowerDb(22_050, 100, avgPower, binResolution);
-        double p22_5k   = GetBandPowerDb(22_500, 100, avgPower, binResolution);
+        double p22k     = GetBandPowerDb(22_050, BandHalfWidthNarrowHz, avgPower, binResolution);
+        double p22_5k   = GetBandPowerDb(22_500, BandHalfWidthNarrowHz, avgPower, binResolution);
         double p23_5k   = GetBandPowerDb(23_500, 200, avgPower, binResolution);
-        double p24k     = GetBandPowerDb(24_000, 100, avgPower, binResolution);
-        double p35k     = GetPowerAtFreq(35_000, avgPower, binResolution);
-        double p40k     = GetPowerAtFreq(40_000, avgPower, binResolution);
+        double p24k     = GetBandPowerDb(24_000, BandHalfWidthNarrowHz, avgPower, binResolution);
+        double p35k     = GetBandPowerDb(35_000, BandHalfWidthHiResHz, avgPower, binResolution);
+        double p40k     = GetBandPowerDb(40_000, BandHalfWidthHiResHz, avgPower, binResolution);
         double pNyquist = GetBandPowerDb(Math.Max(1000, nyquistLimitHz - binResolution), 200, avgPower, binResolution);
 
         double relP16k = p16k - pRef;
         double relP20k = p20k - pRef;
 
-        // Ciri peluruhan alami instrumen akustik/piano tanpa patahan filter buatan (brickwall)
-        // serta memastikan energi harmonik masih melampaui 9 kHz (bukan master gelap ekstrem -50 dB/okt)
+        // Deteksi keheningan digital absolut (-160 dBFS) di atas batas CD pada wadah >= 48 kHz
+        bool isDeadUltrasonicSilence =
+            sampleRate >= 48_000 &&
+            noiseFloorDbFS <= DeadSilenceFloorDbFS &&
+            noiseStdDevDb <= DeadSilenceMaxStdDevDb &&
+            p22_5k <= DeadSilenceBandDbFS &&
+            pNyquist <= DeadSilenceBandDbFS;
+
+        // Deteksi cermin pita lebar nyaris datar dari resampler non-ideal (menjaga agar tidak lolos sebagai Verified)
+        bool isFlatBroadbandMirror =
+            sampleRate >= 88_200 &&
+            imagingCorrelation >= FlatMirrorMinCorrelation &&
+            imagingAttenuationDb <= FlatMirrorMaxAttenuationDb &&
+            imagingUpperMeanDb > FlatMirrorMinUpperMeanDbFS &&
+            detectedKneeHz >= nyquistLimitHz - 500;
+
+        // Ciri peluruhan alami instrumen akustik/piano tanpa patahan filter buatan (brickwall),
+        // menolak berkas dengan tebing/kemiringan batas CD atau pita ultrasonik sunyi mutlak (-160 dBFS).
         double lowTrebleSlope = ComputeSpectralSlope(2_000.0, 4_000.0, avgPower, binResolution);
+        uint effectiveReachHz = Math.Max(upperEnvelopeReachHz, detectedKneeHz);
 
         bool isSmoothAcousticRollOff =
-            upperEnvelopeReachHz >= 9_000 &&
-            dropAcrossKnee < 12.5 &&
-            midTrebleCliffDrop < 13.5 &&
-            kneeSteepness > -44.0 &&
-            trebleDecaySlope >= -42.0 &&
-            lowTrebleSlope >= -38.0;
+            effectiveReachHz >= AcousticMinEffectiveReachHz &&
+            dropAcrossKnee < AcousticMaxDropAcrossKneeDb &&
+            midTrebleCliffDrop < AcousticMaxMidTrebleCliffDb &&
+            kneeSteepness > AcousticMinKneeSteepnessDbPerOct &&
+            trebleDecaySlope >= AcousticMinTrebleDecaySlopeDbPerOct &&
+            lowTrebleSlope >= AcousticMinLowTrebleSlopeDbPerOct &&
+            !isDeadUltrasonicSilence &&
+            !isDeadZeroLossyCutoff &&
+            (sampleRate < 48_000 || slopeCdTransition > CdBrickwallMaxSlopeDbPerOct);
 
         uint detectedCutoffHz;
         AuthenticityVerdict verdict;
         string explanation;
 
-        // 7. Pohon Keputusan Forensik (Decision Tree)
+        // 7. Pohon Keputusan Forensik (Decision Tree — bahasa berbasis bukti & transparan)
         if (sampleRate >= 88_200) // Format Hi-Res (88.2 kHz, 96 kHz, 176.4 kHz, 192 kHz)
         {
-            if (isDitherShelfDetected && bitsPerSample >= 24 && p22_5k < -122.0)
+            bool isCdBrickwallHiRes =
+                (detectedKneeHz >= CdKneeMinHz && detectedKneeHz <= CdKneeMaxHz &&
+                 slopeCdTransition <= CdBrickwallMaxSlopeDbPerOct &&
+                 (p22_5k < p20k - 12.0 || p22_5k < HybridP22_5kMaxDbFS)) ||
+                (cliffHz >= CdCliffMinHz && cliffHz <= CdCliffMaxHz &&
+                 cliffDropDb >= CdCliffMinDropDb &&
+                 slopeCdTransition <= CdBrickwallMaxSlopeDbPerOct) ||
+                (isDeadUltrasonicSilence && slopeCdTransition <= CdBrickwallMaxSlopeDbPerOct);
+
+            bool isPrimaryMp3CutoffHiRes =
+                ((detectedKneeHz <= LossyKneeMaxHz) || (relP16k < RelP16kLossyThresholdDb) ||
+                 ((relP20k < RelP20kLossyThresholdDb) && relP16k > -42.0)) &&
+                kneeSteepness <= LossySteepnessThresholdDbPerOct &&
+                dropAcrossKnee >= LossyDropAcrossKneeMinDb;
+
+            bool hasSmoothHiResContinuation =
+                slopeCdTransition >= NaturalRollOffMinSlopeDbPerOct ||
+                (detectedKneeHz > HiResSmoothContinuationMinKneeHz &&
+                 dropAcrossKnee < HiResSmoothContinuationMaxDropDb &&
+                 kneeSteepness >= HiResSmoothContinuationMinSteepnessDbPerOct &&
+                 cliffDropDb < CdCliffMinDropDb &&
+                 imagingCorrelation < HiResSmoothContinuationMaxImagingR);
+
+            if (isDitherShelfDetected && bitsPerSample >= 24 && p22_5k < DitherMaxUpperBandDbFS)
             {
                 verdict = AuthenticityVerdict.Dithered16BitUpscale;
-                detectedCutoffHz = 22_050;
-                explanation = $"Wadah berlabel {sourceSpec.FormattedBadge}, namun spektrum ultrasonik menunjukkan lantai derau dither 16-bit rata ({noiseFloorDbFS:F1} dBFS, σ={noiseStdDevDb:F1} dB). " +
-                              "Berkas ini hasil ekspor dari master 16-bit dengan TPDF dithering.";
+                detectedCutoffHz = CdNyquistHz;
+                explanation = $"Wadah berlabel {sourceSpec.FormattedBadge}, namun pita ultrasonik menunjukkan lantai derau datar setara dither 16-bit ({noiseFloorDbFS:F1} dBFS, σ={noiseStdDevDb:F1} dB). " +
+                              "Konsisten dengan ekspor dari master 16-bit dengan TPDF dithering.";
             }
-            else if (isImagingDetected)
+            else if (isImagingDetected || isFlatBroadbandMirror)
             {
                 verdict = AuthenticityVerdict.Inconclusive;
-                detectedCutoffHz = 22_050;
-                explanation = $"Perlu cek manual: terdeteksi korelasi cermin pencitraan tinggi (r={imagingCorrelation:F2}, atenuasi: {imagingAttenuationDb:F1} dB, level: {imagingUpperMeanDb:F1} dBFS) di sekitar 22.05 kHz. " +
-                              "Energi ultrasonik terindikasi sebagai artefak resampler non-ideal dari sumber 44.1 kHz.";
+                detectedCutoffHz = CdNyquistHz;
+                explanation = $"Perlu cek manual: terdeteksi pola cermin pencitraan resampler (r={imagingCorrelation:F2}, atenuasi {imagingAttenuationDb:F1} dB, level pita atas {imagingUpperMeanDb:F1} dBFS) di sekitar 22.05 kHz. " +
+                              "Energi ultrasonik berpotensi berasal dari artefak resampler non-ideal dari sumber 44.1 kHz.";
             }
-            else if (((detectedKneeHz >= 21_000 && detectedKneeHz <= 22_600 && slopeCdTransition <= -36.0 && (p22_5k < p20k - 12.0 || p22_5k < -85.0)) ||
-                      (cliffHz >= 21_500 && cliffHz <= 22_700 && cliffDropDb >= 8.0 && slopeCdTransition <= -36.0)))
+            else if (isCdBrickwallHiRes)
             {
                 verdict = AuthenticityVerdict.UpscaledFromCd;
-                detectedCutoffHz = 22_050;
-                explanation = $"Wadah berlabel {sourceSpec.FormattedBadge}, namun energi frekuensi berhenti di batas CD 22.05 kHz (kemiringan {slopeCdTransition:F1} dB/oktaf, level @ 22.05k: {p22k:F1} dBFS). " +
-                              "Berkas ini berasal dari master CD 44.1 kHz yang di-upsample.";
+                detectedCutoffHz = CdNyquistHz;
+                string hedge = (dropAcrossKnee < CdUpsampleHedgeDropThresholdDb && cliffDropDb < CdUpsampleHedgeCliffThresholdDb)
+                    ? "Kemungkinan besar konsisten dengan upsampling dari master CD 44.1 kHz"
+                    : "Konsisten dengan upsampling dari master CD 44.1 kHz";
+                explanation = $"Wadah berlabel {sourceSpec.FormattedBadge}, namun energi spektral turun tajam di sekitar batas CD 22.05 kHz (kemiringan {slopeCdTransition:F1} dB/oktaf, tebing {cliffDropDb:F1} dB @ {cliffHz / 1000.0:F2} kHz, drop knee {dropAcrossKnee:F1} dB, level @ 22.05k: {p22k:F1} dBFS). {hedge}.";
             }
-            else if (((detectedKneeHz <= 17_500) || (relP16k < -45.0) || ((relP20k < -50.0) && relP16k > -42.0)) && kneeSteepness <= -60.0 && dropAcrossKnee >= 20.0)
+            else if (isPrimaryMp3CutoffHiRes || isDeadZeroLossyCutoff)
             {
                 verdict = AuthenticityVerdict.SuspectedUpscaledLossy;
-                detectedCutoffHz = detectedKneeHz;
-                explanation = $"Lossless palsu terdeteksi: wadah {sourceSpec.FormattedBadge}, namun frekuensi terpotong tajam di ~{detectedCutoffHz / 1000.0:F1} kHz " +
-                              $"(kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB). Kemungkinan hasil konversi dari lossy (MP3/AAC) atau sumber ber-bandwidth terbatas.";
+                detectedCutoffHz = isPrimaryMp3CutoffHiRes ? detectedKneeHz : deadZeroLossyCutoffHz;
+                double repSteep = isPrimaryMp3CutoffHiRes ? kneeSteepness : deadZeroLossySteepness;
+                double repDrop = isPrimaryMp3CutoffHiRes ? dropAcrossKnee : deadZeroLossyDropDb;
+                explanation = $"Terdeteksi pemotongan spektrum tajam pada wadah {sourceSpec.FormattedBadge} di ~{detectedCutoffHz / 1000.0:F1} kHz " +
+                              $"(kemiringan {repSteep:F1} dB/oktaf, penurunan {repDrop:F1} dB). Kemungkinan hasil konversi dari lossy (MP3/AAC), atau sumber dengan bandwidth terbatas.";
             }
             else if (bitsPerSample >= 24 && isZeroPadded)
             {
                 verdict = AuthenticityVerdict.ZeroPadded24Bit;
                 detectedCutoffHz = Math.Min(nyquistLimitHz, Math.Max(detectedKneeHz, upperEnvelopeReachHz));
-                explanation = $"Wadah 24-bit palsu (zero-padding): 8 bit terbawah kosong (aktivitas {lsbPercentage:F1}%, entropi {lsbEntropy:F2}/8 bit). Resolusi sinyal aslinya hanya 16-bit.";
+                explanation = $"Konsisten dengan wadah 24-bit zero-padding: 8 bit terbawah kosong (aktivitas {lsbPercentage:F1}%, entropi {lsbEntropy:F2}/8 bit), setara resolusi 16-bit.";
             }
-            else if (detectedKneeHz <= 21_000 && isSmoothAcousticRollOff)
+            else if (detectedKneeHz <= CdKneeMinHz && isSmoothAcousticRollOff)
             {
                 verdict = AuthenticityVerdict.AcousticNaturalRollOff;
                 detectedCutoffHz = nyquistLimitHz;
-                explanation = $"Rekaman asli berkarakter lembut: harmonik melandai halus tanpa potongan filter buatan (jangkauan puncak ~{upperEnvelopeReachHz / 1000.0:F1} kHz, kemiringan treble {trebleDecaySlope:F1} dB/oktaf).";
+                explanation = $"Tidak ditemukan artefak pemotongan filter buatan: harmonik melandai halus secara alami (jangkauan puncak ~{effectiveReachHz / 1000.0:F1} kHz, kemiringan treble {trebleDecaySlope:F1} dB/oktaf). {AacOpusCaveatId}";
             }
-            else if (detectedKneeHz <= 21_000)
+            else if (detectedKneeHz <= CdKneeMinHz)
             {
                 verdict = AuthenticityVerdict.Inconclusive;
                 detectedCutoffHz = detectedKneeHz;
-                explanation = $"Perlu cek manual: energi turun di ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB). Belum cukup bukti sebagai potongan MP3 maupun master penuh.";
+                explanation = $"Perlu cek manual: energi turun di bawah ambang pada ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB). Belum cukup bukti sebagai potongan MP3 maupun master penuh.";
             }
-            else if ((p22_5k < -85.0 || slopeCdTransition <= -36.0) && (p35k > -90.0 || p40k > -95.0) && noiseStdDevDb >= 2.5)
+            else if ((p22_5k < HybridP22_5kMaxDbFS || slopeCdTransition <= CdBrickwallMaxSlopeDbPerOct) &&
+                     (p35k > HybridP35kMinDbFS || p40k > HybridP40kMinDbFS) &&
+                     noiseStdDevDb >= HybridMinNoiseStdDevDb)
             {
                 verdict = AuthenticityVerdict.HybridMaster;
                 detectedCutoffHz = (uint)Math.Min(nyquistLimitHz, 44_000);
-                explanation = "Hi-Res asli produksi studio campuran: memadukan instrumen sample 44.1 kHz dengan overtone studio aktif di atas 35 kHz.";
+                explanation = $"Spektrum konsisten dengan produksi studio campuran (hybrid): memadukan elemen berbatas 44.1 kHz dengan energi ultrasonik aktif di pita 35–40 kHz. {AacOpusCaveatId}";
             }
-            else if (detectedKneeHz > 21_000 && (slopeCdTransition >= -30.0 || (detectedKneeHz > 24_000 && dropAcrossKnee < 10.0 && kneeSteepness <= 0.0)) && p24k < -80.0 && p35k <= -100.0)
+            else if (detectedKneeHz > CdKneeMinHz && hasSmoothHiResContinuation && p24k < HiResP24kActiveDbFS && p35k <= HiResP35kAcousticMaxDbFS)
             {
                 verdict = AuthenticityVerdict.AcousticNaturalRollOff;
                 detectedCutoffHz = (uint)Math.Min(nyquistLimitHz, Math.Max(24_000u, detectedKneeHz));
-                explanation = $"Lossless asli berkarakter akustik lembut: energi aktif hingga ~{detectedKneeHz / 1000.0:F1} kHz lalu melandai alami (kemiringan {slopeCdTransition:F1} dB/oktaf).";
+                explanation = $"Tidak ditemukan artefak lossy maupun upsampling CD: energi terukur aktif hingga ~{detectedKneeHz / 1000.0:F1} kHz lalu melandai halus secara alami (kemiringan {slopeCdTransition:F1} dB/oktaf). {AacOpusCaveatId}";
             }
-            else if (detectedKneeHz > 21_000 && (slopeCdTransition >= -30.0 || (detectedKneeHz > 24_000 && dropAcrossKnee < 10.0 && kneeSteepness <= 0.0)) && (p35k > -105.0 || p40k > -108.0 || p24k >= -80.0))
+            else if (detectedKneeHz > CdKneeMinHz && hasSmoothHiResContinuation && (p35k > HiResP35kVerifiedDbFS || p40k > HiResP40kVerifiedDbFS || p24k >= HiResP24kActiveDbFS))
             {
                 verdict = AuthenticityVerdict.VerifiedLossless;
                 detectedCutoffHz = (uint)Math.Min(nyquistLimitHz, Math.Max(35_000u, detectedKneeHz));
-                explanation = $"Hi-Res Lossless asli: tidak ditemukan potongan MP3 atau batas CD; energi aktif alami hingga ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {slopeCdTransition:F1} dB/oktaf). Catatan: AAC/Opus bitrate tinggi tanpa lowpass tidak dapat dibedakan lewat spektrum saja.";
+                explanation = $"Tidak ditemukan artefak lossy maupun batas upsampling CD: energi spektral terukur aktif hingga ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {slopeCdTransition:F1} dB/oktaf). {AacOpusCaveatId}";
             }
             else
             {
@@ -376,72 +540,82 @@ public static class NyquistSpectrumAnalyzer
         }
         else if (sampleRate == 48_000)
         {
-            // Pada 48 kHz master asli, filter anti-aliasing studio mulai melandai di ~21.6 kHz menuju Nyquist 24.0 kHz.
-            // Upsample CD sejati runtuh ke lantai derau di atas 22.5 kHz atau punya tebing curam di batas CD 22.05 kHz.
             bool hasLiveUltrasonicTail48k =
-                p22_5k > -102.0 &&
-                p23_5k > -108.0 &&
-                (p22_5k - p23_5k) <= 10.0 &&
-                cliffDropDb < 16.0;
+                p22_5k > Tail48kMinP22_5kDbFS &&
+                p23_5k > Tail48kMinP23_5kDbFS &&
+                (p22_5k - p23_5k) <= Tail48kMaxDropDb &&
+                cliffDropDb < Tail48kMaxCliffDb;
 
             bool isCdBrickwall48k = !hasLiveUltrasonicTail48k && (
-                (cliffHz >= 21_500 && cliffHz <= 22_700 && cliffDropDb >= 8.0 && slopeCdTransition <= -36.0) ||
-                (detectedKneeHz >= 21_000 && detectedKneeHz <= 22_600 && slopeCdTransition <= -36.0 &&
-                 (p22_5k < -108.0 || p23_5k < -118.0 || (p20k - p22_5k >= 25.0))));
+                (cliffHz >= CdCliffMinHz && cliffHz <= CdCliffMaxHz && cliffDropDb >= CdCliffMinDropDb && slopeCdTransition <= CdBrickwallMaxSlopeDbPerOct) ||
+                (detectedKneeHz >= CdKneeMinHz && detectedKneeHz <= CdKneeMaxHz && slopeCdTransition <= CdBrickwallMaxSlopeDbPerOct &&
+                 (p22_5k < -108.0 || p23_5k < -118.0 || (p20k - p22_5k >= 25.0))) ||
+                (isDeadUltrasonicSilence && slopeCdTransition <= CdBrickwallMaxSlopeDbPerOct));
 
-            if (isDitherShelfDetected && bitsPerSample >= 24 && p22k < -122.0)
+            bool isPrimaryMp3Cutoff48k =
+                ((detectedKneeHz <= LossyKneeMaxHz) || (relP16k < RelP16kLossyThresholdDb) ||
+                 ((relP20k < RelP20kLossyThresholdDb) && relP16k > -40.0)) &&
+                kneeSteepness <= LossySteepnessThresholdDbPerOct &&
+                dropAcrossKnee >= LossyDropAcrossKneeMinDb;
+
+            if (isDitherShelfDetected && bitsPerSample >= 24 && p22k < DitherMaxUpperBandDbFS)
             {
                 verdict = AuthenticityVerdict.Dithered16BitUpscale;
-                detectedCutoffHz = 22_050;
-                explanation = $"Wadah 48.0 kHz 24-bit, namun pita 22-24 kHz hanya berisi lantai derau dither 16-bit rata ({noiseFloorDbFS:F1} dBFS, σ={noiseStdDevDb:F1} dB).";
+                detectedCutoffHz = CdNyquistHz;
+                explanation = $"Wadah 48.0 kHz 24-bit, namun pita 22–24 kHz menunjukkan lantai derau datar setara dither 16-bit ({noiseFloorDbFS:F1} dBFS, σ={noiseStdDevDb:F1} dB). Konsisten dengan ekspor dari master 16-bit.";
             }
             else if (isImagingDetected)
             {
                 verdict = AuthenticityVerdict.Inconclusive;
-                detectedCutoffHz = 22_050;
-                explanation = $"Perlu cek manual: terdeteksi korelasi cermin pencitraan (r={imagingCorrelation:F2}, atenuasi: {imagingAttenuationDb:F1} dB, level: {imagingUpperMeanDb:F1} dBFS) di 22-24 kHz khas resampler 44.1 ke 48 kHz.";
+                detectedCutoffHz = CdNyquistHz;
+                explanation = $"Perlu cek manual: terdeteksi korelasi cermin pencitraan (r={imagingCorrelation:F2}, atenuasi {imagingAttenuationDb:F1} dB, level {imagingUpperMeanDb:F1} dBFS) di 22–24 kHz yang konsisten dengan resampler 44.1 ke 48 kHz.";
             }
             else if (isCdBrickwall48k)
             {
                 verdict = AuthenticityVerdict.UpscaledFromCd;
-                detectedCutoffHz = 22_050;
-                explanation = $"Wadah 48.0 kHz FLAC, namun spektrum terpotong curam di batas CD 22.05 kHz (kemiringan {slopeCdTransition:F1} dB/oktaf, level @ 22.05k: {p22k:F1} dBFS). Berasal dari master CD 44.1 kHz yang di-upsample.";
+                detectedCutoffHz = CdNyquistHz;
+                string hedge = (dropAcrossKnee < CdUpsampleHedgeDropThresholdDb && cliffDropDb < CdUpsampleHedgeCliffThresholdDb)
+                    ? "Kemungkinan besar konsisten dengan upsampling dari master CD 44.1 kHz"
+                    : "Konsisten dengan upsampling dari master CD 44.1 kHz";
+                explanation = $"Wadah 48.0 kHz, namun spektrum turun tajam di sekitar batas CD 22.05 kHz (kemiringan {slopeCdTransition:F1} dB/oktaf, drop knee {dropAcrossKnee:F1} dB, level @ 22.05k: {p22k:F1} dBFS). {hedge}.";
             }
-            else if (((detectedKneeHz <= 17_500) || (relP16k < -45.0) || ((relP20k < -50.0) && relP16k > -40.0)) && kneeSteepness <= -60.0 && dropAcrossKnee >= 20.0)
+            else if (isPrimaryMp3Cutoff48k || isDeadZeroLossyCutoff)
             {
                 verdict = AuthenticityVerdict.SuspectedUpscaledLossy;
-                detectedCutoffHz = detectedKneeHz;
-                explanation = $"Lossless palsu terdeteksi: energi terpotong tajam di ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB). Kemungkinan hasil konversi dari lossy (MP3/AAC) atau sumber ber-bandwidth terbatas.";
+                detectedCutoffHz = isPrimaryMp3Cutoff48k ? detectedKneeHz : deadZeroLossyCutoffHz;
+                double repSteep = isPrimaryMp3Cutoff48k ? kneeSteepness : deadZeroLossySteepness;
+                double repDrop = isPrimaryMp3Cutoff48k ? dropAcrossKnee : deadZeroLossyDropDb;
+                explanation = $"Terdeteksi pemotongan spektrum tajam di ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {repSteep:F1} dB/oktaf, penurunan {repDrop:F1} dB). Kemungkinan hasil konversi dari lossy (MP3/AAC), atau sumber dengan bandwidth terbatas.";
             }
             else if (bitsPerSample >= 24 && isZeroPadded)
             {
                 verdict = AuthenticityVerdict.ZeroPadded24Bit;
                 detectedCutoffHz = 24_000;
-                explanation = $"Wadah 24-bit palsu (zero-padding): 8 bit terbawah kosong (aktivitas {lsbPercentage:F1}%, entropi {lsbEntropy:F2}/8 bit). Resolusi sinyal aslinya hanya 16-bit.";
+                explanation = $"Konsisten dengan wadah 24-bit zero-padding: 8 bit terbawah kosong (aktivitas {lsbPercentage:F1}%, entropi {lsbEntropy:F2}/8 bit), setara resolusi 16-bit.";
             }
-            else if (detectedKneeHz <= 21_000 && isSmoothAcousticRollOff)
+            else if (detectedKneeHz <= CdKneeMinHz && isSmoothAcousticRollOff)
             {
                 verdict = AuthenticityVerdict.AcousticNaturalRollOff;
                 detectedCutoffHz = 24_000;
-                explanation = $"Lossless asli berkarakter akustik lembut: harmonik melandai halus tanpa potongan filter buatan (jangkauan puncak ~{upperEnvelopeReachHz / 1000.0:F1} kHz, kemiringan treble {trebleDecaySlope:F1} dB/oktaf).";
+                explanation = $"Tidak ditemukan artefak pemotongan filter buatan: harmonik melandai halus secara alami (jangkauan puncak ~{effectiveReachHz / 1000.0:F1} kHz, kemiringan treble {trebleDecaySlope:F1} dB/oktaf). {AacOpusCaveatId}";
             }
-            else if (detectedKneeHz <= 21_000)
+            else if (detectedKneeHz <= CdKneeMinHz)
             {
                 verdict = AuthenticityVerdict.Inconclusive;
                 detectedCutoffHz = detectedKneeHz;
-                explanation = $"Perlu cek manual: spektrum 48 kHz turun di ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB).";
+                explanation = $"Perlu cek manual: spektrum 48 kHz turun di bawah ambang pada ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB).";
             }
-            else if (detectedKneeHz > 21_000 && (slopeCdTransition >= -30.0 || p23_5k > -115.0) && p24k < -80.0)
+            else if (detectedKneeHz > CdKneeMinHz && (slopeCdTransition >= NaturalRollOffMinSlopeDbPerOct || p23_5k > -115.0) && p24k < HiResP24kActiveDbFS)
             {
                 verdict = AuthenticityVerdict.AcousticNaturalRollOff;
                 detectedCutoffHz = 24_000;
-                explanation = $"Lossless asli berkarakter akustik lembut: energi aktif melewati batas CD hingga ~{nyquistLimitHz / 1000.0:F1} kHz dan melandai alami menuju Nyquist.";
+                explanation = $"Tidak ditemukan artefak lossy maupun upsampling CD: energi terukur aktif melewati batas CD menuju ~{nyquistLimitHz / 1000.0:F1} kHz dan melandai alami. {AacOpusCaveatId}";
             }
-            else if (detectedKneeHz > 21_000 && (slopeCdTransition >= -30.0 || p23_5k > -115.0) && p24k >= -80.0)
+            else if (detectedKneeHz > CdKneeMinHz && (slopeCdTransition >= NaturalRollOffMinSlopeDbPerOct || p23_5k > -115.0) && p24k >= HiResP24kActiveDbFS)
             {
                 verdict = AuthenticityVerdict.VerifiedLossless;
                 detectedCutoffHz = 24_000;
-                explanation = $"Lossless asli 48.0 kHz: tidak ditemukan artefak lossy atau upsampling CD; energi aktif penuh hingga batas 24.0 kHz.";
+                explanation = $"Tidak ditemukan artefak lossy maupun upsampling CD pada 48.0 kHz: energi spektral terukur aktif hingga ~24.0 kHz. {AacOpusCaveatId}";
             }
             else
             {
@@ -450,43 +624,47 @@ public static class NyquistSpectrumAnalyzer
                 explanation = $"Perlu cek manual: spektrum 48 kHz berada di zona transisi ambigu (kemiringan {slopeCdTransition:F1} dB/oktaf, p24k: {p24k:F1} dBFS).";
             }
         }
-        else // Standar 44.1 kHz (mendukung baik 16-bit maupun 24-bit / 44.1 kHz!)
+        else // Standar 44.1 kHz (mendukung baik 16-bit maupun 24-bit / 44.1 kHz)
         {
-            bool relLossyPattern44k = (relP16k < -45.0) || ((relP20k < -50.0) && relP16k > -35.0);
-            bool isMp3Cutoff44k = ((detectedKneeHz <= 17_500) || relLossyPattern44k) && kneeSteepness <= -60.0 && dropAcrossKnee >= 20.0;
+            bool relLossyPattern44k = (relP16k < RelP16kLossyThresholdDb) || ((relP20k < RelP20kLossyThresholdDb) && relP16k > -35.0);
+            bool isPrimaryMp3Cutoff44k = ((detectedKneeHz <= LossyKneeMaxHz) || relLossyPattern44k) &&
+                                         kneeSteepness <= LossySteepnessThresholdDbPerOct &&
+                                         dropAcrossKnee >= LossyDropAcrossKneeMinDb;
 
-            if (isMp3Cutoff44k)
+            if (isPrimaryMp3Cutoff44k || isDeadZeroLossyCutoff)
             {
                 verdict = AuthenticityVerdict.SuspectedUpscaledLossy;
-                detectedCutoffHz = detectedKneeHz;
-                explanation = $"Lossless palsu terdeteksi: berkas 44.1 kHz terpotong tajam di ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB). " +
+                detectedCutoffHz = isPrimaryMp3Cutoff44k ? detectedKneeHz : deadZeroLossyCutoffHz;
+                double repSteep = isPrimaryMp3Cutoff44k ? kneeSteepness : deadZeroLossySteepness;
+                double repDrop = isPrimaryMp3Cutoff44k ? dropAcrossKnee : deadZeroLossyDropDb;
+                explanation = $"Terdeteksi pemotongan spektrum tajam pada berkas 44.1 kHz di ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {repSteep:F1} dB/oktaf, penurunan {repDrop:F1} dB). " +
                               "Kemungkinan hasil konversi dari lossy (MP3/AAC), atau sumber dengan bandwidth terbatas.";
             }
             else if (bitsPerSample >= 24 && isZeroPadded)
             {
                 verdict = AuthenticityVerdict.ZeroPadded24Bit;
-                detectedCutoffHz = 22_050;
-                explanation = $"Wadah 24-bit palsu (zero-padding): berkas 24-bit / 44.1 kHz ini memiliki 8 bit terbawah bernilai nol (aktivitas {lsbPercentage:F1}%, entropi {lsbEntropy:F2}/8 bit), setara 16-bit.";
+                detectedCutoffHz = CdNyquistHz;
+                explanation = $"Konsisten dengan wadah 24-bit zero-padding: berkas 24-bit / 44.1 kHz memiliki 8 bit terbawah bernilai nol (aktivitas {lsbPercentage:F1}%, entropi {lsbEntropy:F2}/8 bit), setara 16-bit.";
             }
-            else if (bitsPerSample >= 24 && isDitherShelfDetected && p20k < -122.0 && p20kEnv < -122.0)
+            else if (bitsPerSample >= 24 && isDitherShelfDetected && p20k < DitherMaxUpperBandDbFS && p20kEnv < DitherMaxUpperBandDbFS)
             {
                 verdict = AuthenticityVerdict.Dithered16BitUpscale;
-                detectedCutoffHz = 22_050;
-                explanation = $"Wadah 24-bit / 44.1 kHz, namun pita 20-22 kHz menunjukkan lantai derau dither 16-bit rata ({noiseFloorDbFS:F1} dBFS, σ={noiseStdDevDb:F1} dB).";
+                detectedCutoffHz = CdNyquistHz;
+                explanation = $"Wadah 24-bit / 44.1 kHz, namun pita 20–22 kHz menunjukkan lantai derau datar setara dither 16-bit ({noiseFloorDbFS:F1} dBFS, σ={noiseStdDevDb:F1} dB). Konsisten dengan ekspor dari master 16-bit.";
             }
-            else if (detectedKneeHz <= 21_000 && isSmoothAcousticRollOff)
+            else if (detectedKneeHz <= CdKneeMinHz && isSmoothAcousticRollOff)
             {
                 verdict = AuthenticityVerdict.AcousticNaturalRollOff;
-                detectedCutoffHz = 22_050;
-                explanation = $"Lossless asli berkarakter akustik lembut: lagu melandai alami tanpa potongan filter buatan (jangkauan puncak ~{upperEnvelopeReachHz / 1000.0:F1} kHz, kemiringan treble {trebleDecaySlope:F1} dB/oktaf).";
+                detectedCutoffHz = CdNyquistHz;
+                explanation = $"Tidak ditemukan artefak pemotongan filter buatan: harmonik melandai halus secara alami (jangkauan puncak ~{effectiveReachHz / 1000.0:F1} kHz, kemiringan treble {trebleDecaySlope:F1} dB/oktaf). {AacOpusCaveatId}";
             }
-            else if (detectedKneeHz <= 21_000)
+            else if (detectedKneeHz <= CdKneeMinHz)
             {
                 verdict = AuthenticityVerdict.Inconclusive;
                 detectedCutoffHz = detectedKneeHz;
-                explanation = $"Perlu cek manual: spektrum 44.1 kHz turun cukup tajam di ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB).";
+                explanation = $"Perlu cek manual: spektrum 44.1 kHz turun di bawah ambang pada ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB).";
             }
-            else if (dropAcrossKnee >= 25.0 && kneeSteepness <= -60.0)
+            else if (dropAcrossKnee >= Cd44kInconclusiveDropDb && kneeSteepness <= LossySteepnessThresholdDbPerOct)
             {
                 verdict = AuthenticityVerdict.Inconclusive;
                 detectedCutoffHz = detectedKneeHz;
@@ -495,8 +673,8 @@ public static class NyquistSpectrumAnalyzer
             else
             {
                 verdict = AuthenticityVerdict.VerifiedLossless;
-                detectedCutoffHz = 22_050;
-                explanation = $"Lossless asli: tidak ditemukan potongan MP3; energi aktif alami hingga batas CD ~{nyquistLimitHz / 1000.0:F1} kHz. Catatan: AAC/Opus bitrate tinggi tanpa lowpass tidak dapat dibedakan lewat spektrum saja.";
+                detectedCutoffHz = CdNyquistHz;
+                explanation = $"Tidak ditemukan artefak pemotongan MP3: energi spektral terukur aktif hingga batas CD ~{nyquistLimitHz / 1000.0:F1} kHz. {AacOpusCaveatId}";
             }
         }
 
@@ -504,6 +682,11 @@ public static class NyquistSpectrumAnalyzer
             !explanation.Contains("zero-padding", StringComparison.OrdinalIgnoreCase))
         {
             explanation += " [Catatan: Wadah 24-bit terdeteksi zero-padding dari 16-bit].";
+        }
+
+        if (!seekSucceeded)
+        {
+            explanation += " [Catatan: Stream tidak mendukung seek; analisis dijalankan dari posisi awal 00:00].";
         }
 
         return new AudioIntegrityReport(
@@ -519,8 +702,8 @@ public static class NyquistSpectrumAnalyzer
             ultrasonicNoiseFloorDbFS: noiseFloorDbFS,
             isDitherDetected: isDitherShelfDetected,
             lsbEntropy: lsbEntropy,
-            analysisTimestamp: loudestSectionTime,
-            analysisPositionPercentage: Math.Round(loudestFraction * 100.0, 1),
+            analysisTimestamp: reportedTimestamp,
+            analysisPositionPercentage: reportedPositionPct,
             powerAt22kDbFS: Math.Round(p22k, 1),
             powerAtNyquistDbFS: Math.Round(pNyquist, 1),
             ultrasonicNoiseStdDevDb: noiseStdDevDb,
@@ -539,41 +722,54 @@ public static class NyquistSpectrumAnalyzer
             hasActiveHardwarePath: hasActiveHardwarePath,
             isHardwareExclusive: isHardwareExclusive,
             configuredDriverType: configuredDriverType,
-            upperEnvelopeReachHz: upperEnvelopeReachHz
+            upperEnvelopeReachHz: effectiveReachHz
         );
     }
 
     /// <summary>
     /// Mendeteksi apakah data 24-in-32 bit berformat MSB-aligned (byte 0 = 0x00 pad, LSB di byte 1 -> offset 1)
-    /// atau LSB-aligned (LSB di byte 0 -> offset 0).
-    /// Jika byte 0 nol DAN byte 3 selalu sign-extension dari bit 7 byte 2 (0x00 atau 0xFF),
-    /// maka disimpulkan LSB-aligned (offset 0, audio 16-bit yang di-zero-padding).
+    /// atau LSB-aligned (LSB di byte 0 -> offset 0) dengan memindai hingga 4.096 frame (~42 ms @ 96 kHz).
+    /// Jika byte 0 nol (>=98% frame) DAN ditemukan minimal 3 frame aktif dengan byte 3 bukan sign-extension
+    /// dari bit 7 byte 2, maka dipastikan MSB-aligned (offset 1); sebaliknya jika byte 3 selalu sign-extension
+    /// pada seluruh frame aktif, maka disimpulkan LSB-aligned zero-padded (offset 0).
     /// </summary>
     private static int Detect24In32Alignment(byte[] buffer, int samples, int blockAlign)
     {
         if (samples <= 0) return 0;
+        int testLimit = Math.Min(AlignmentProbeMaxFrames, samples);
         int zeroCountByte0 = 0;
-        int signExtCountByte3 = 0;
-        int testLimit = Math.Min(100, samples);
+        int nonZeroActiveFrames = 0;
+        int nonSignExtCountByte3 = 0;
+
         for (int t = 0; t < testLimit; t++)
         {
             int baseIdx = t * blockAlign;
             byte b0 = buffer[baseIdx];
+            byte b1 = buffer[baseIdx + 1];
             byte b2 = buffer[baseIdx + 2];
             byte b3 = buffer[baseIdx + 3];
 
             if (b0 == 0) zeroCountByte0++;
-
-            byte expectedSignExt = (byte)((b2 & 0x80) != 0 ? 0xFF : 0x00);
-            if (b3 == expectedSignExt) signExtCountByte3++;
+            if ((b1 | b2 | b3) != 0)
+            {
+                nonZeroActiveFrames++;
+                byte expectedSignExt = (byte)((b2 & 0x80) != 0 ? 0xFF : 0x00);
+                if (b3 != expectedSignExt) nonSignExtCountByte3++;
+            }
         }
 
-        if (zeroCountByte0 >= testLimit - 2 && signExtCountByte3 >= testLimit - 2)
+        bool byte0MostlyZero = zeroCountByte0 >= (int)Math.Floor(testLimit * AlignmentZeroByte0MinRatio);
+        if (!byte0MostlyZero)
         {
-            return 0; // LSB-aligned dengan zero-padding pada LSB
+            return 0; // Byte 0 aktif -> LSB-aligned
         }
 
-        return (zeroCountByte0 >= testLimit - 2) ? 1 : 0;
+        if (nonSignExtCountByte3 >= AlignmentMinNonSignExtFrames)
+        {
+            return 1; // Byte 0 kosong & byte 3 memuat MSB audio -> MSB-aligned
+        }
+
+        return 0; // Byte 0 kosong & byte 3 hanya sign-extension (atau hening total) -> LSB-aligned / zero-padded
     }
 
     /// <summary>
@@ -638,18 +834,19 @@ public static class NyquistSpectrumAnalyzer
     /// segmen audio dengan energi RMS tertinggi (loudest section).
     /// Mengembalikan timestamp waktu terpilih dan persentase posisinya.
     /// </summary>
-    private static (TimeSpan Time, double Fraction) FindLoudestSectionTime(IAudioStream stream, CancellationToken ct)
+    private static (TimeSpan Time, double Fraction, bool SeekSucceeded) FindLoudestSectionTime(IAudioStream stream, CancellationToken ct)
     {
         double totalSeconds = stream.TotalTime.TotalSeconds;
         if (totalSeconds < 10.0)
         {
-            return (TimeSpan.FromSeconds(Math.Max(0.0, totalSeconds * 0.30)), 0.30);
+            return (TimeSpan.FromSeconds(Math.Max(0.0, totalSeconds * 0.30)), 0.30, true);
         }
 
         double[] candidateFractions = [0.20, 0.35, 0.50, 0.65, 0.80];
         double bestFrac = 0.40;
         double bestTimeSec = totalSeconds * 0.40;
         double maxRms = -1.0;
+        bool anySeekSucceeded = false;
 
         int probeSamples = 8192;
         int blockAlign = stream.WaveFormat.BlockAlign;
@@ -668,6 +865,7 @@ public static class NyquistSpectrumAnalyzer
             try
             {
                 stream.CurrentTime = TimeSpan.FromSeconds(targetSec);
+                anySeekSucceeded = true;
                 int read = stream.Read(probeBuf, 0, probeBuf.Length);
                 int samples = read / blockAlign;
                 if (samples <= 0) continue;
@@ -679,11 +877,9 @@ public static class NyquistSpectrumAnalyzer
                 }
 
                 double sumSq = 0.0;
-                int totalSamplesAcrossChannels = 0;
                 for (int i = 0; i < samples; i++)
                 {
                     int frameOff = i * blockAlign;
-                    // Rata-ratakan energi dari semua kanal dalam satu frame
                     double frameSumSq = 0.0;
                     for (int ch = 0; ch < channels; ch++)
                     {
@@ -692,7 +888,6 @@ public static class NyquistSpectrumAnalyzer
                         frameSumSq += sv * sv;
                     }
                     sumSq += frameSumSq / channels;
-                    totalSamplesAcrossChannels++;
                 }
 
                 double rms = Math.Sqrt(sumSq / samples);
@@ -705,10 +900,13 @@ public static class NyquistSpectrumAnalyzer
             }
             catch
             {
+                // Non-seekable stream candidate skipped; tracked via anySeekSucceeded
             }
         }
 
-        return (TimeSpan.FromSeconds(bestTimeSec), bestFrac);
+        return anySeekSucceeded
+            ? (TimeSpan.FromSeconds(bestTimeSec), bestFrac, true)
+            : (TimeSpan.Zero, 0.0, false);
     }
 
     /// <summary>
@@ -897,21 +1095,12 @@ public static class NyquistSpectrumAnalyzer
         }
         double stdDev = Math.Sqrt(sumSqDiff / count);
 
-        // Level dither TPDF 16-bit yang diharapkan per-bin pada normalisasi FFT ini:
-        //   varians_dither = 0.25 * LSB^2  (TPDF = penjumlahan 2 distribusi uniform ±0.5 LSB)
-        //   LSB = 2.0 / 65536.0            (full-scale = ±1.0 dinormalisasi)
-        //   normalisasi mag = |X| / (N/2) dengan Hann sum factor ~1.5
-        //   offset_fft = 10 * log10(1.5 / N) = 10 * log10(1.5 / 4096) ≈ -34.36 dB
-        //   level_per_bin = 10*log10(varians_dither) + offset_fft = -96.33 + (-34.36) = -130.7 dBFS
-        const double DitherTpdf16BitLevelDbFS = -130.7;
-        const double DitherDetectionToleranceDb = 4.0; // ±4 dB toleransi terhadap noise shaping
-
         // Dither terdeteksi jika:
-        //   (a) rata-rata berada dalam ±toleransi dari level dither teoritis, DAN
+        //   (a) rata-rata berada dalam ±DitherDetectionToleranceDb dari DitherTpdf16BitLevelDbFS (-130.7 dBFS), DAN
         //   (b) deviasi standar sangat rendah (plataran rata, bukan harmonik musik)
         bool isDither = (meanDb >= DitherTpdf16BitLevelDbFS - DitherDetectionToleranceDb &&
                          meanDb <= DitherTpdf16BitLevelDbFS + DitherDetectionToleranceDb &&
-                         stdDev < 2.2);
+                         stdDev < DitherMaxStdDevDb);
 
         return (Math.Round(meanDb, 1), Math.Round(stdDev, 1), isDither);
     }
@@ -987,20 +1176,6 @@ public static class NyquistSpectrumAnalyzer
         }
 
         return avgPower;
-    }
-
-    /// <summary>
-    /// Mengembalikan daya spektrum dalam dBFS pada satu bin frekuensi terdekat.
-    /// Jika frekuensi melebihi Nyquist wadah, di-clamp ke bin terakhir yang tersedia
-    /// (bukan return -120) agar pembacaan tetap fisik.
-    /// </summary>
-    private static double GetPowerAtFreq(double freqHz, double[] avgPower, double binResolution)
-    {
-        if (binResolution <= 0.0) return -160.0;
-        int bin = (int)(freqHz / binResolution);
-        bin = Math.Clamp(bin, 0, avgPower.Length - 1);
-        double p = avgPower[bin];
-        return 10.0 * Math.Log10(Math.Max(1e-16, p));
     }
 
     /// <summary>
@@ -1204,7 +1379,9 @@ public static class NyquistSpectrumAnalyzer
         double r = (n * sumXY - sumX * sumY) / Math.Sqrt(varX * varY);
         if (!double.IsFinite(r)) return (0.0, Math.Round(attenuation, 1), Math.Round(meanUpper, 1), false);
 
-        bool isImaging = (r >= 0.65 && attenuation <= 15.0 && meanUpper > -128.0);
+        bool isImaging = (r >= ImagingMinCorrelation &&
+                          attenuation <= ImagingMaxAttenuationDb &&
+                          meanUpper > ImagingMinUpperMeanDbFS);
 
         return (Math.Round(r, 2), Math.Round(attenuation, 1), Math.Round(meanUpper, 1), isImaging);
     }
@@ -1290,6 +1467,60 @@ public static class NyquistSpectrumAnalyzer
         }
 
         return (bestCliffHz, Math.Round(maxDropDb, 1));
+    }
+
+    /// <summary>
+    /// Memindai pemotongan tajam lossy (15.0–19.5 kHz) yang jatuh langsung ke keheningan digital absolut
+    /// (&lt;= -152 dBFS) hingga mendekati batas CD 22 kHz. Menangkap transcode MP3-ke-FLAC pada materi
+    /// akustik lembut (misal piano solo) yang sudah melandai di bawah -48 dB sebelum 16 kHz.
+    /// </summary>
+    private static (bool Detected, uint CutoffHz, double SteepnessDbPerOct, double DropDb) ComputeDeadZeroLossyBrickwall(
+        double[] avgPower,
+        double binResolution,
+        uint nyquistLimitHz)
+    {
+        if (binResolution <= 0.0 || avgPower.Length == 0 || nyquistLimitHz < 20_500)
+        {
+            return (false, 0, 0.0, 0.0);
+        }
+
+        double maxScanFreq = Math.Min(DeadZeroLossyScanMaxHz, nyquistLimitHz - 1_500.0);
+        double tailEndHz = Math.Min(22_000.0, nyquistLimitHz - 200.0);
+
+        bool detected = false;
+        uint bestCutoffHz = 0;
+        double bestDropDb = 0.0;
+        double bestSteepness = 0.0;
+
+        for (double f = DeadZeroLossyScanMinHz; f <= maxScanFreq; f += DeadZeroLossyScanStepHz)
+        {
+            double beforeDb = GetBandPowerDb(f - 600.0, 400.0, avgPower, binResolution);
+            double afterDb = GetBandPowerDb(f + 850.0, 650.0, avgPower, binResolution);
+            double dropDb = beforeDb - afterDb;
+
+            if (dropDb < DeadZeroLossyMinDropDb) continue;
+
+            double tailStartHz = f + 1_000.0;
+            if (tailEndHz <= tailStartHz + 500.0) continue;
+
+            double tailCenter = 0.5 * (tailStartHz + tailEndHz);
+            double tailHalf = 0.5 * (tailEndHz - tailStartHz);
+            double tailDb = GetBandPowerDb(tailCenter, tailHalf, avgPower, binResolution);
+            if (tailDb > DeadSilenceFloorDbFS) continue;
+
+            double steepness = ComputeSpectralSlope(f - 1_000.0, f + 1_000.0, avgPower, binResolution);
+            if (steepness > LossySteepnessThresholdDbPerOct) continue;
+
+            if (!detected || dropDb > bestDropDb)
+            {
+                detected = true;
+                bestCutoffHz = (uint)Math.Round(f);
+                bestDropDb = Math.Round(dropDb, 1);
+                bestSteepness = Math.Round(steepness, 1);
+            }
+        }
+
+        return (detected, bestCutoffHz, bestSteepness, bestDropDb);
     }
 
     /// <summary>

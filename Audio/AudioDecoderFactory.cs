@@ -86,7 +86,14 @@ public static class AudioDecoderFactory
 
             case ".aiff" or ".aif":
                 codec = AudioCodec.AIFF;
-                underlyingStream = new MediaFoundationReader(filePath);
+                try
+                {
+                    underlyingStream = new AiffFileReader(filePath);
+                }
+                catch
+                {
+                    underlyingStream = new MediaFoundationReader(filePath);
+                }
                 break;
 
             default:
