@@ -254,6 +254,7 @@
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Style="{StaticResource Style.Button.Primary}"
+                        AutomationProperties.AutomationId="Aura.Songs.PlayAll"
                         Content="Play All"
                         Command="{Binding PlayAllTracksCommand}" />
                 <Button Style="{StaticResource Style.Button.Secondary}"

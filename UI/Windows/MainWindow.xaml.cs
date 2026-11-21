@@ -696,19 +696,8 @@ public partial class MainWindow : Window
         }
     }
 
-    private static bool IsInsideInteractiveControl(DependencyObject element)
-    {
-        DependencyObject? current = element;
-        while (current != null)
-        {
-            if (current is ButtonBase || current is TextBoxBase)
-            {
-                return true;
-            }
-            current = System.Windows.Media.VisualTreeHelper.GetParent(current);
-        }
-        return false;
-    }
+    private static bool IsInsideInteractiveControl(DependencyObject element) =>
+        TreeNavigationHelper.HasAncestor(element, static current => current is ButtonBase || current is TextBoxBase);
 
     private void MinimizeButton_Click(object sender, RoutedEventArgs e) =>
         WindowState = WindowState.Minimized;
@@ -893,37 +882,17 @@ public partial class MainWindow : Window
         }
     }
 
-    private static bool IsInsideFocusableInput(DependencyObject element)
-    {
-        DependencyObject? current = element;
-        while (current != null)
-        {
-            if (current is TextBoxBase ||
-                current is ComboBox ||
-                current is ListBoxItem ||
-                current is DataGridCell ||
-                current is Slider)
-            {
-                return true;
-            }
-            current = System.Windows.Media.VisualTreeHelper.GetParent(current);
-        }
-        return false;
-    }
+    private static bool IsInsideFocusableInput(DependencyObject element) =>
+        TreeNavigationHelper.HasAncestor(element, static current =>
+            current is TextBoxBase ||
+            current is ComboBox ||
+            current is ListBoxItem ||
+            current is DataGridCell ||
+            current is Slider);
 
-    private static bool IsInsideQueueList(DependencyObject? element)
-    {
-        DependencyObject? current = element;
-        while (current != null)
-        {
-            if (current is FrameworkElement fe && fe.Name == "QueueListBox")
-            {
-                return true;
-            }
-            current = System.Windows.Media.VisualTreeHelper.GetParent(current);
-        }
-        return false;
-    }
+    private static bool IsInsideQueueList(DependencyObject? element) =>
+        TreeNavigationHelper.HasAncestor(element, static current =>
+            current is FrameworkElement fe && fe.Name == "QueueListBox");
 
     private void OnWindowPreviewMouseUp(object sender, MouseButtonEventArgs e)
     {
@@ -1316,7 +1285,7 @@ public partial class MainWindow : Window
 
                     if (workEqualsMonitor && autoHideDetected)
                     {
-                        const int taskbarTriggerGapPx = 2;
+                        const int taskbarTriggerGapPx = 1;
                         switch (GetAutoHideTaskbarEdge())
                         {
                             case ABE_LEFT:

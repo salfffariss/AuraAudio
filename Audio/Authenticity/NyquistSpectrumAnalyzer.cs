@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.IO;
 using System.Numerics;
 using System.Threading;
@@ -23,6 +24,16 @@ namespace AuraAudio.Audio.Authenticity;
 /// </summary>
 public static class NyquistSpectrumAnalyzer
 {
+    /// <summary>
+    /// Forensic analyzer version identifier used to validate cached per-track reports.
+    /// </summary>
+    public const string AnalyzerVersion = "2.0.2";
+
+    // Dedicated pool for bit-depth forensic read buffer (300k * 6..8 bytes = 1.8..2.4 MB),
+    // which exceeds ArrayPool<byte>.Shared's 1 MB max bucket size.
+    private static readonly ArrayPool<byte> LargePcmBufferPool =
+        ArrayPool<byte>.Create(maxArrayLength: 4 * 1024 * 1024, maxArraysPerBucket: 2);
+
     // =========================================================================
     // NAMED FORENSIC CALIBRATION CONSTANTS (All thresholds documented & synced
     // with docs/METODE_ANALISIS_KEASLIAN_AUDIO.md)
@@ -193,7 +204,9 @@ public static class NyquistSpectrumAnalyzer
         AudioDriverType configuredDriverType,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => Analyze(filePath, hardwareSpec, hasActiveHardwarePath, isHardwareExclusive, configuredDriverType, cancellationToken), cancellationToken);
+        return ForensicAnalysisCoordinator.Instance.EnqueueAsync(
+            () => Analyze(filePath, hardwareSpec, hasActiveHardwarePath, isHardwareExclusive, configuredDriverType, cancellationToken),
+            cancellationToken);
     }
 
     /// <summary>
@@ -222,7 +235,12 @@ public static class NyquistSpectrumAnalyzer
         }
 
         using var stream = AudioDecoderFactory.OpenStream(filePath);
-        return Analyze(stream, hardwareSpec, hasActiveHardwarePath, isHardwareExclusive, configuredDriverType, cancellationToken);
+        var report = Analyze(stream, hardwareSpec, hasActiveHardwarePath, isHardwareExclusive, configuredDriverType, cancellationToken);
+        return report with
+        {
+            AnalyzedFilePath = filePath,
+            AnalyzerVersion = AnalyzerVersion
+        };
     }
 
     /// <summary>
@@ -377,7 +395,7 @@ public static class NyquistSpectrumAnalyzer
 
         // 4. Audit Integritas Bit-Depth Forensik (300.000 sampel mentah + Shannon Entropy untuk 16-bit & 24-bit)
         var (isTrue24Bit, lsbPercentage, lsbEntropy, isZeroPadded, lsbOffset) = EvaluateBitDepthForensic(
-            stream, BitDepthSampleSize, blockAlign, bitsPerSample, channels);
+            stream, BitDepthSampleSize, blockAlign, bitsPerSample, channels, cancellationToken);
 
         // Kembalikan posisi stream ke titik analisis FFT (catat kegagalan seek secara transparan)
         bool fftSeekOk = false;
@@ -1003,54 +1021,65 @@ public static class NyquistSpectrumAnalyzer
         int channels = Math.Max(1, stream.WaveFormat.Channels);
         int bytesPerSample = channels > 0 ? blockAlign / channels : 2;
 
-        byte[] probeBuf = new byte[probeSamples * blockAlign];
-
+        int probeBytes = probeSamples * blockAlign;
+        byte[] probeBuf = ArrayPool<byte>.Shared.Rent(probeBytes);
         WaveFormatEncoding encoding = stream.WaveFormat.Encoding;
 
-        foreach (double frac in candidateFractions)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            double targetSec = totalSeconds * frac;
-            try
+            foreach (double frac in candidateFractions)
             {
-                stream.CurrentTime = TimeSpan.FromSeconds(targetSec);
-                anySeekSucceeded = true;
-                int read = stream.Read(probeBuf, 0, probeBuf.Length);
-                int samples = read / blockAlign;
-                if (samples <= 0) continue;
-
-                int lsbOffset = 0;
-                if (bytesPerSample == 4 && bitsPerSample == 24)
+                ct.ThrowIfCancellationRequested();
+                double targetSec = totalSeconds * frac;
+                try
                 {
-                    lsbOffset = Detect24In32Alignment(probeBuf, samples, blockAlign);
-                }
+                    stream.CurrentTime = TimeSpan.FromSeconds(targetSec);
+                    anySeekSucceeded = true;
+                    int read = stream.Read(probeBuf, 0, probeBytes);
+                    int samples = read / blockAlign;
+                    if (samples <= 0) continue;
 
-                double sumSq = 0.0;
-                for (int i = 0; i < samples; i++)
-                {
-                    int frameOff = i * blockAlign;
-                    double frameSumSq = 0.0;
-                    for (int ch = 0; ch < channels; ch++)
+                    int lsbOffset = 0;
+                    if (bytesPerSample == 4 && bitsPerSample == 24)
                     {
-                        int sampleOff = frameOff + ch * bytesPerSample;
-                        double sv = ExtractSampleNorm(probeBuf, sampleOff, bitsPerSample, bytesPerSample, encoding, lsbOffset);
-                        frameSumSq += sv * sv;
+                        lsbOffset = Detect24In32Alignment(probeBuf, samples, blockAlign);
                     }
-                    sumSq += frameSumSq / channels;
-                }
 
-                double rms = Math.Sqrt(sumSq / samples);
-                if (rms > maxRms)
+                    double sumSq = 0.0;
+                    for (int i = 0; i < samples; i++)
+                    {
+                        int frameOff = i * blockAlign;
+                        double frameSumSq = 0.0;
+                        for (int ch = 0; ch < channels; ch++)
+                        {
+                            int sampleOff = frameOff + ch * bytesPerSample;
+                            double sv = ExtractSampleNorm(probeBuf, sampleOff, bitsPerSample, bytesPerSample, encoding, lsbOffset);
+                            frameSumSq += sv * sv;
+                        }
+                        sumSq += frameSumSq / channels;
+                    }
+
+                    double rms = Math.Sqrt(sumSq / samples);
+                    if (rms > maxRms)
+                    {
+                        maxRms = rms;
+                        bestTimeSec = targetSec;
+                        bestFrac = frac;
+                    }
+                }
+                catch (OperationCanceledException)
                 {
-                    maxRms = rms;
-                    bestTimeSec = targetSec;
-                    bestFrac = frac;
+                    throw;
+                }
+                catch
+                {
+                    // Non-seekable stream candidate skipped; tracked via anySeekSucceeded
                 }
             }
-            catch
-            {
-                // Non-seekable stream candidate skipped; tracked via anySeekSucceeded
-            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(probeBuf);
         }
 
         return anySeekSucceeded
@@ -1068,65 +1097,75 @@ public static class NyquistSpectrumAnalyzer
         int sampleCount,
         int blockAlign,
         int bitsPerSample,
-        int channels)
+        int channels,
+        CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (stream.WaveFormat.Encoding == WaveFormatEncoding.IeeeFloat || bitsPerSample < 16)
         {
             return (false, 0.0, 0.0, false, 0);
         }
 
         int bytesPerSample = channels > 0 ? blockAlign / channels : (bitsPerSample / 8);
-        byte[] bitBuf = new byte[sampleCount * blockAlign];
-        int bytesRead = stream.Read(bitBuf, 0, bitBuf.Length);
-        int actualFrames = bytesRead / blockAlign;
-
-        if (actualFrames <= 0) return (false, 0.0, 0.0, false, 0);
-
-        int lsbOffset = 0;
-        if (bitsPerSample >= 24 && bytesPerSample == 4)
+        int requestedBytes = sampleCount * blockAlign;
+        byte[] bitBuf = LargePcmBufferPool.Rent(requestedBytes);
+        try
         {
-            lsbOffset = Detect24In32Alignment(bitBuf, actualFrames, blockAlign);
-        }
+            int bytesRead = stream.Read(bitBuf, 0, requestedBytes);
+            int actualFrames = bytesRead / blockAlign;
 
-        long nonZeroLsb = 0;
-        long totalChannelSamples = (long)actualFrames * channels;
-        int[] lsbDistribution = new int[256];
+            if (actualFrames <= 0) return (false, 0.0, 0.0, false, 0);
 
-        for (int i = 0; i < actualFrames; i++)
-        {
-            int frameOff = i * blockAlign;
-            for (int ch = 0; ch < channels; ch++)
+            int lsbOffset = 0;
+            if (bitsPerSample >= 24 && bytesPerSample == 4)
             {
-                int byteIdx = frameOff + ch * bytesPerSample + lsbOffset;
-                if (byteIdx >= bytesRead) continue;
-                byte lsb = bitBuf[byteIdx];
-                if (lsb != 0) nonZeroLsb++;
-                lsbDistribution[lsb]++;
+                lsbOffset = Detect24In32Alignment(bitBuf, actualFrames, blockAlign);
             }
-        }
 
-        double entropy = 0.0;
-        int uniqueValues = 0;
-        for (int b = 0; b < 256; b++)
-        {
-            if (lsbDistribution[b] > 0)
+            long nonZeroLsb = 0;
+            long totalChannelSamples = (long)actualFrames * channels;
+            Span<int> lsbDistribution = stackalloc int[256];
+
+            for (int i = 0; i < actualFrames; i++)
             {
-                uniqueValues++;
-                double p = (double)lsbDistribution[b] / totalChannelSamples;
-                entropy -= p * Math.Log2(p);
+                int frameOff = i * blockAlign;
+                for (int ch = 0; ch < channels; ch++)
+                {
+                    int byteIdx = frameOff + ch * bytesPerSample + lsbOffset;
+                    if (byteIdx >= bytesRead) continue;
+                    byte lsb = bitBuf[byteIdx];
+                    if (lsb != 0) nonZeroLsb++;
+                    lsbDistribution[lsb]++;
+                }
             }
-        }
 
-        double pct = (double)nonZeroLsb / totalChannelSamples * 100.0;
-        if (bitsPerSample < 24)
+            double entropy = 0.0;
+            int uniqueValues = 0;
+            for (int b = 0; b < 256; b++)
+            {
+                if (lsbDistribution[b] > 0)
+                {
+                    uniqueValues++;
+                    double p = (double)lsbDistribution[b] / totalChannelSamples;
+                    entropy -= p * Math.Log2(p);
+                }
+            }
+
+            double pct = (double)nonZeroLsb / totalChannelSamples * 100.0;
+            if (bitsPerSample < 24)
+            {
+                return (false, Math.Round(pct, 1), Math.Round(entropy, 2), false, 0);
+            }
+
+            bool isZeroPadded = (pct < 1.0 && entropy < 0.5);
+            bool isTrue = (pct > 75.0 && uniqueValues > 160 && entropy > 6.0);
+
+            return (isTrue, Math.Round(pct, 1), Math.Round(entropy, 2), isZeroPadded, lsbOffset);
+        }
+        finally
         {
-            return (false, Math.Round(pct, 1), Math.Round(entropy, 2), false, 0);
+            LargePcmBufferPool.Return(bitBuf);
         }
-
-        bool isZeroPadded = (pct < 1.0 && entropy < 0.5);
-        bool isTrue = (pct > 75.0 && uniqueValues > 160 && entropy > 6.0);
-
-        return (isTrue, Math.Round(pct, 1), Math.Round(entropy, 2), isZeroPadded, lsbOffset);
     }
 
     /// <summary>
@@ -1274,52 +1313,61 @@ public static class NyquistSpectrumAnalyzer
         int bytesPerSample = channels > 0 ? blockAlign / channels : 2;
         WaveFormatEncoding encoding = stream.WaveFormat.Encoding;
 
-        byte[] buffer = new byte[fftSize * blockAlign];
-        Complex[] fftIn = new Complex[fftSize];
+        int frameBytes = fftSize * blockAlign;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(frameBytes);
+        Complex[] fftIn = ArrayPool<Complex>.Shared.Rent(fftSize);
         int windowsProcessed = 0;
 
-        for (int w = 0; w < numWindows; w++)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-
-            int read = stream.Read(buffer, 0, buffer.Length);
-            if (read < buffer.Length)
+            for (int w = 0; w < numWindows; w++)
             {
-                // Jika mendekati EOF tapi belum memproses cukup window, coba loop kembali ke awal
-                if (windowsProcessed == 0 && stream.Length > buffer.Length)
+                ct.ThrowIfCancellationRequested();
+
+                int read = stream.Read(buffer, 0, frameBytes);
+                if (read < frameBytes)
                 {
-                    try
+                    // Jika mendekati EOF tapi belum memproses cukup window, coba loop kembali ke awal
+                    if (windowsProcessed == 0 && stream.Length > frameBytes)
                     {
-                        stream.Position = 0;
-                        read = stream.Read(buffer, 0, buffer.Length);
+                        try
+                        {
+                            stream.Position = 0;
+                            read = stream.Read(buffer, 0, frameBytes);
+                        }
+                        catch { }
                     }
-                    catch { }
+                    if (read < frameBytes) break;
                 }
-                if (read < buffer.Length) break;
-            }
 
-            // FFT per kanal, lalu rata-ratakan DAYA spektrum seluruh kanal (bagi jumlah kanal)
-            // Menghindari pembatalan fase stereo dan mempertahankan daya dither independen pada -130.7 dBFS
-            double chWeight = 1.0 / channels;
-            for (int ch = 0; ch < channels; ch++)
-            {
-                for (int i = 0; i < fftSize; i++)
+                // FFT per kanal, lalu rata-ratakan DAYA spektrum seluruh kanal (bagi jumlah kanal)
+                // Menghindari pembatalan fase stereo dan mempertahankan daya dither independen pada -130.7 dBFS
+                double chWeight = 1.0 / channels;
+                for (int ch = 0; ch < channels; ch++)
                 {
-                    int frameOff = i * blockAlign;
-                    double sample = ExtractSampleNorm(buffer, frameOff + ch * bytesPerSample, bitsPerSample, bytesPerSample, encoding, lsbOffset);
-                    fftIn[i] = new Complex(sample * HannWindow[i], 0);
+                    for (int i = 0; i < fftSize; i++)
+                    {
+                        int frameOff = i * blockAlign;
+                        double sample = ExtractSampleNorm(buffer, frameOff + ch * bytesPerSample, bitsPerSample, bytesPerSample, encoding, lsbOffset);
+                        fftIn[i] = new Complex(sample * HannWindow[i], 0);
+                    }
+
+                    ComputeFftInPlace(fftIn, fftSize);
+
+                    for (int b = 0; b < fftSize / 2; b++)
+                    {
+                        double mag = fftIn[b].Magnitude / (fftSize / 2.0);
+                        avgPower[b] += (mag * mag) * chWeight;
+                    }
                 }
 
-                ComputeFftInPlace(fftIn);
-
-                for (int b = 0; b < fftSize / 2; b++)
-                {
-                    double mag = fftIn[b].Magnitude / (fftSize / 2.0);
-                    avgPower[b] += (mag * mag) * chWeight;
-                }
+                windowsProcessed++;
             }
-
-            windowsProcessed++;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<Complex>.Shared.Return(fftIn);
         }
 
         if (windowsProcessed > 0)
@@ -1367,56 +1415,65 @@ public static class NyquistSpectrumAnalyzer
         int bytesPerSample = channels > 0 ? blockAlign / channels : 2;
         WaveFormatEncoding encoding = stream.WaveFormat.Encoding;
 
-        byte[] buffer = new byte[fftSize * blockAlign];
-        Complex[] fftIn = new Complex[fftSize];
+        int frameBytes = fftSize * blockAlign;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(frameBytes);
+        Complex[] fftIn = ArrayPool<Complex>.Shared.Rent(fftSize);
         int windowsProcessed = 0;
         double chWeight = 1.0 / channels;
 
-        for (int seg = 0; seg < segmentCount; seg++)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            double frac = segmentCount > 1 ? (double)seg / (segmentCount - 1) : 0.0;
-            long targetFrame = (long)Math.Round(frac * maxStartFrame);
-            long targetByte = targetFrame * blockAlign;
-            try
-            {
-                stream.Position = targetByte;
-            }
-            catch
-            {
-                if (seg == 0)
-                {
-                    return ComputeAveragePowerSpectrum(stream, fftSize, totalWindows, ct, lsbOffset);
-                }
-                break;
-            }
-
-            for (int w = 0; w < windowsPerSegment; w++)
+            for (int seg = 0; seg < segmentCount; seg++)
             {
                 ct.ThrowIfCancellationRequested();
-                int read = stream.Read(buffer, 0, buffer.Length);
-                if (read < buffer.Length) break;
-
-                for (int ch = 0; ch < channels; ch++)
+                double frac = segmentCount > 1 ? (double)seg / (segmentCount - 1) : 0.0;
+                long targetFrame = (long)Math.Round(frac * maxStartFrame);
+                long targetByte = targetFrame * blockAlign;
+                try
                 {
-                    for (int i = 0; i < fftSize; i++)
+                    stream.Position = targetByte;
+                }
+                catch
+                {
+                    if (seg == 0)
                     {
-                        int frameOff = i * blockAlign;
-                        double sample = ExtractSampleNorm(buffer, frameOff + ch * bytesPerSample, bitsPerSample, bytesPerSample, encoding, lsbOffset);
-                        fftIn[i] = new Complex(sample * HannWindow[i], 0);
+                        return ComputeAveragePowerSpectrum(stream, fftSize, totalWindows, ct, lsbOffset);
                     }
-
-                    ComputeFftInPlace(fftIn);
-
-                    for (int b = 0; b < fftSize / 2; b++)
-                    {
-                        double mag = fftIn[b].Magnitude / (fftSize / 2.0);
-                        avgPower[b] += (mag * mag) * chWeight;
-                    }
+                    break;
                 }
 
-                windowsProcessed++;
+                for (int w = 0; w < windowsPerSegment; w++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int read = stream.Read(buffer, 0, frameBytes);
+                    if (read < frameBytes) break;
+
+                    for (int ch = 0; ch < channels; ch++)
+                    {
+                        for (int i = 0; i < fftSize; i++)
+                        {
+                            int frameOff = i * blockAlign;
+                            double sample = ExtractSampleNorm(buffer, frameOff + ch * bytesPerSample, bitsPerSample, bytesPerSample, encoding, lsbOffset);
+                            fftIn[i] = new Complex(sample * HannWindow[i], 0);
+                        }
+
+                        ComputeFftInPlace(fftIn, fftSize);
+
+                        for (int b = 0; b < fftSize / 2; b++)
+                        {
+                            double mag = fftIn[b].Magnitude / (fftSize / 2.0);
+                            avgPower[b] += (mag * mag) * chWeight;
+                        }
+                    }
+
+                    windowsProcessed++;
+                }
             }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<Complex>.Shared.Return(fftIn);
         }
 
         if (windowsProcessed == 0)
@@ -1974,109 +2031,127 @@ public static class NyquistSpectrumAnalyzer
         int bytesPerSample = channels > 0 ? blockAlign / channels : 2;
         WaveFormatEncoding encoding = stream.WaveFormat.Encoding;
 
-        byte[] buffer = new byte[fftSize * blockAlign];
-        Complex[] fftIn = new Complex[fftSize];
+        int frameBytes = fftSize * blockAlign;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(frameBytes);
+        Complex[] fftIn = ArrayPool<Complex>.Shared.Rent(fftSize);
         var frameSpectra = new System.Collections.Generic.List<double[]>(32);
         const int windowsPerPosition = 6;
 
-        foreach (double frac in fractions)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            try
-            {
-                stream.CurrentTime = TimeSpan.FromSeconds(Math.Max(0.0, totalSeconds * frac));
-            }
-            catch
-            {
-                continue;
-            }
-
-            for (int w = 0; w < windowsPerPosition; w++)
+            foreach (double frac in fractions)
             {
                 ct.ThrowIfCancellationRequested();
-                int read;
                 try
                 {
-                    read = stream.Read(buffer, 0, buffer.Length);
+                    stream.CurrentTime = TimeSpan.FromSeconds(Math.Max(0.0, totalSeconds * frac));
                 }
                 catch
                 {
+                    continue;
+                }
+
+                for (int w = 0; w < windowsPerPosition; w++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int read;
+                    try
+                    {
+                        read = stream.Read(buffer, 0, frameBytes);
+                    }
+                    catch
+                    {
+                        break;
+                    }
+                    if (read < frameBytes) break;
+
+                    double[] framePower = ArrayPool<double>.Shared.Rent(numBins);
+                    Array.Clear(framePower, 0, numBins);
+                    double chWeight = 1.0 / channels;
+                    double frameTotal = 0.0;
+
+                    for (int ch = 0; ch < channels; ch++)
+                    {
+                        for (int i = 0; i < fftSize; i++)
+                        {
+                            int frameOff = i * blockAlign;
+                            double sample = ExtractSampleNorm(buffer, frameOff + ch * bytesPerSample, bitsPerSample, bytesPerSample, encoding, lsbOffset);
+                            fftIn[i] = new Complex(sample * HannWindow[i], 0);
+                        }
+
+                        ComputeFftInPlace(fftIn, fftSize);
+
+                        for (int b = 0; b < numBins; b++)
+                        {
+                            double mag = fftIn[b].Magnitude / (fftSize / 2.0);
+                            double p = (mag * mag) * chWeight;
+                            framePower[b] += p;
+                            frameTotal += p;
+                        }
+                    }
+
+                    if ((frameTotal / numBins) > 1e-12)
+                    {
+                        frameSpectra.Add(framePower);
+                    }
+                    else
+                    {
+                        ArrayPool<double>.Shared.Return(framePower);
+                    }
+                }
+            }
+
+            if (frameSpectra.Count == 0)
+            {
+                double pRefFallback = GetBandPowerDb(2_500, 1_500, fallbackAvgPower, binResolution);
+                uint fallbackReach = DetectKneeCutoffHz(fallbackAvgPower, binResolution, pRefFallback, nyquistLimitHz, 58.0);
+                return (fallbackAvgPower, fallbackReach);
+            }
+
+            double[] envPower = new double[numBins];
+            double[] scratch = new double[frameSpectra.Count];
+            int p90Idx = Math.Clamp((int)Math.Floor((frameSpectra.Count - 1) * 0.90), 0, frameSpectra.Count - 1);
+
+            for (int b = 0; b < numBins; b++)
+            {
+                for (int f = 0; f < frameSpectra.Count; f++)
+                {
+                    scratch[f] = frameSpectra[f][b];
+                }
+                Array.Sort(scratch);
+                envPower[b] = scratch[p90Idx];
+            }
+
+            double pRefEnv = nyquistLimitHz >= 8_000
+                ? GetBandPowerDb(2_500, 1_500, envPower, binResolution)
+                : GetBandPowerDb(nyquistLimitHz * 0.35, nyquistLimitHz * 0.20, envPower, binResolution);
+            double reachThresholdDb = Math.Max(-114.0, Math.Max(-80.0, pRefEnv) - 66.0);
+            int maxBin = Math.Min(numBins - 1, (int)(nyquistLimitHz / binResolution));
+            double envMinFreqHz = nyquistLimitHz >= 16_000 ? 8_000.0 : nyquistLimitHz * 0.35;
+            int minBin = Math.Max(1, (int)(envMinFreqHz / binResolution));
+            uint reachHz = (uint)Math.Round(minBin * binResolution);
+
+            for (int b = maxBin; b >= minBin; b--)
+            {
+                double binDb = 10.0 * Math.Log10(Math.Max(1e-16, envPower[b]));
+                if (binDb > reachThresholdDb)
+                {
+                    reachHz = Math.Min((uint)Math.Round(b * binResolution), nyquistLimitHz);
                     break;
                 }
-                if (read < buffer.Length) break;
-
-                double[] framePower = new double[numBins];
-                double chWeight = 1.0 / channels;
-                double frameTotal = 0.0;
-
-                for (int ch = 0; ch < channels; ch++)
-                {
-                    for (int i = 0; i < fftSize; i++)
-                    {
-                        int frameOff = i * blockAlign;
-                        double sample = ExtractSampleNorm(buffer, frameOff + ch * bytesPerSample, bitsPerSample, bytesPerSample, encoding, lsbOffset);
-                        fftIn[i] = new Complex(sample * HannWindow[i], 0);
-                    }
-
-                    ComputeFftInPlace(fftIn);
-
-                    for (int b = 0; b < numBins; b++)
-                    {
-                        double mag = fftIn[b].Magnitude / (fftSize / 2.0);
-                        double p = (mag * mag) * chWeight;
-                        framePower[b] += p;
-                        frameTotal += p;
-                    }
-                }
-
-                if ((frameTotal / numBins) > 1e-12)
-                {
-                    frameSpectra.Add(framePower);
-                }
             }
+
+            return (envPower, reachHz);
         }
-
-        if (frameSpectra.Count == 0)
+        finally
         {
-            double pRefFallback = GetBandPowerDb(2_500, 1_500, fallbackAvgPower, binResolution);
-            uint fallbackReach = DetectKneeCutoffHz(fallbackAvgPower, binResolution, pRefFallback, nyquistLimitHz, 58.0);
-            return (fallbackAvgPower, fallbackReach);
-        }
-
-        double[] envPower = new double[numBins];
-        double[] scratch = new double[frameSpectra.Count];
-        int p90Idx = Math.Clamp((int)Math.Floor((frameSpectra.Count - 1) * 0.90), 0, frameSpectra.Count - 1);
-
-        for (int b = 0; b < numBins; b++)
-        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<Complex>.Shared.Return(fftIn);
             for (int f = 0; f < frameSpectra.Count; f++)
             {
-                scratch[f] = frameSpectra[f][b];
-            }
-            Array.Sort(scratch);
-            envPower[b] = scratch[p90Idx];
-        }
-
-        double pRefEnv = nyquistLimitHz >= 8_000
-            ? GetBandPowerDb(2_500, 1_500, envPower, binResolution)
-            : GetBandPowerDb(nyquistLimitHz * 0.35, nyquistLimitHz * 0.20, envPower, binResolution);
-        double reachThresholdDb = Math.Max(-114.0, Math.Max(-80.0, pRefEnv) - 66.0);
-        int maxBin = Math.Min(numBins - 1, (int)(nyquistLimitHz / binResolution));
-        double envMinFreqHz = nyquistLimitHz >= 16_000 ? 8_000.0 : nyquistLimitHz * 0.35;
-        int minBin = Math.Max(1, (int)(envMinFreqHz / binResolution));
-        uint reachHz = (uint)Math.Round(minBin * binResolution);
-
-        for (int b = maxBin; b >= minBin; b--)
-        {
-            double binDb = 10.0 * Math.Log10(Math.Max(1e-16, envPower[b]));
-            if (binDb > reachThresholdDb)
-            {
-                reachHz = Math.Min((uint)Math.Round(b * binResolution), nyquistLimitHz);
-                break;
+                ArrayPool<double>.Shared.Return(frameSpectra[f]);
             }
         }
-
-        return (envPower, reachHz);
     }
 
     /// <summary>
@@ -2122,9 +2197,8 @@ public static class NyquistSpectrumAnalyzer
         return ComputeSpectralSlope(4_000.0, upper, envPower, binResolution);
     }
 
-    private static void ComputeFftInPlace(Complex[] buffer)
+    private static void ComputeFftInPlace(Complex[] buffer, int n)
     {
-        int n = buffer.Length;
         int j = 0;
 
         for (int i = 0; i < n - 1; i++)

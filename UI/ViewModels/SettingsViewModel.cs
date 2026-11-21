@@ -308,11 +308,11 @@ public class SettingsViewModel : ViewModelBase
 
         ClearLibraryCommand = new RelayCommand(() =>
         {
-            var confirm = MessageBox.Show(
-                "Remove all indexed tracks, albums, artists, playlists, and playback history from AuraAudio's database? Your audio files on disk will not be deleted.",
-                "Clear Library Database",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning);
+            const string prompt = "Remove all indexed tracks, albums, artists, playlists, and playback history from AuraAudio's database? Your audio files on disk will not be deleted.";
+            var owner = Application.Current?.MainWindow is { IsVisible: true } mainWin ? mainWin : null;
+            var confirm = owner != null
+                ? MessageBox.Show(owner, prompt, "Clear Library Database", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                : MessageBox.Show(prompt, "Clear Library Database", MessageBoxButton.YesNo, MessageBoxImage.Warning);
 
             if (confirm == MessageBoxResult.Yes)
             {
@@ -405,7 +405,9 @@ public class SettingsViewModel : ViewModelBase
 
             var result = await Task.Run(() => scanner.ScanDirectoriesAsync(folderList, progress, ct), ct);
             ScanProgressPercent = 100;
-            ScanStatusText = $"Scan complete: {result.Added} indexed, {result.Skipped} unchanged ({result.Elapsed.TotalSeconds:F1}s).";
+            ScanStatusText = result.Removed > 0
+                ? $"Scan complete: {result.Added} indexed, {result.Skipped} unchanged, {result.Removed} removed ({result.Elapsed.TotalSeconds:F1}s)."
+                : $"Scan complete: {result.Added} indexed, {result.Skipped} unchanged ({result.Elapsed.TotalSeconds:F1}s).";
             RefreshEngineStats();
             _onLibraryMutated?.Invoke();
         }

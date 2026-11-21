@@ -1294,6 +1294,71 @@ public class DatabaseManager : IDisposable
     }
 
     /// <summary>
+    /// Removes tracks whose physical files no longer exist (or were excluded) in a single SQLite
+    /// transaction. Foreign-key cascades automatically clean playlist_tracks, track_artists, and
+    /// play_history; playlist track counts and stale playback_session references are synchronized.
+    /// </summary>
+    public int DeleteTracksByFilePaths(IEnumerable<string> filePaths)
+    {
+        ArgumentNullException.ThrowIfNull(filePaths);
+
+        var distinctPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in filePaths)
+        {
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                distinctPaths.Add(path);
+            }
+        }
+
+        if (distinctPaths.Count == 0)
+        {
+            return 0;
+        }
+
+        int removedCount = 0;
+        using var connection = CreateConnection();
+        using var transaction = connection.BeginTransaction();
+        using var deleteCmd = connection.CreateCommand();
+        deleteCmd.Transaction = transaction;
+        deleteCmd.CommandText = "DELETE FROM tracks WHERE file_path = @path;";
+        var pPath = deleteCmd.Parameters.Add("@path", Microsoft.Data.Sqlite.SqliteType.Text);
+        deleteCmd.Prepare();
+
+        foreach (var path in distinctPaths)
+        {
+            pPath.Value = path;
+            removedCount += deleteCmd.ExecuteNonQuery();
+        }
+
+        if (removedCount > 0)
+        {
+            using var syncCmd = connection.CreateCommand();
+            syncCmd.Transaction = transaction;
+            syncCmd.CommandText = """
+                UPDATE playlists
+                SET track_count = (
+                    SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlist_id = playlists.id
+                );
+                UPDATE playback_session
+                SET current_track_id = NULL
+                WHERE current_track_id IS NOT NULL
+                  AND current_track_id NOT IN (SELECT id FROM tracks);
+            """;
+            syncCmd.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+
+        foreach (var path in distinctPaths)
+        {
+            AuraAudio.Metadata.AudioMetadataReader.InvalidateExtendedDetailsCache(path);
+        }
+
+        return removedCount;
+    }
+
+    /// <summary>
     /// Mengambil path direktori ekspor audio yang dikonfigurasi pengguna.
     /// </summary>
     public string GetExportDirectory()

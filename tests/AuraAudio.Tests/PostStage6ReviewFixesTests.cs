@@ -645,17 +645,7 @@ public class PostStage6ReviewFixesTests
                 var hit = VisualTreeHelper.HitTest(scrollBar, new Point(scrollBar.ActualWidth - 0.5, 40));
                 Assert.NotNull(hit?.VisualHit);
 
-                DependencyObject? cur = hit!.VisualHit;
-                bool hitThumb = false;
-                while (cur != null)
-                {
-                    if (cur is Thumb)
-                    {
-                        hitThumb = true;
-                        break;
-                    }
-                    cur = VisualTreeHelper.GetParent(cur);
-                }
+                bool hitThumb = AuraAudio.UI.Helpers.TreeNavigationHelper.FindAncestor<Thumb>(hit!.VisualHit) != null;
                 Assert.True(hitThumb, "Expected rightmost edge of vertical ScrollBar to hit Thumb (zero dead edge zone).");
             }
             finally

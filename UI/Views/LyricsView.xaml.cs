@@ -215,16 +215,8 @@ public partial class LyricsView : UserControl
         }
     }
 
-    private static bool IsInsideScrollBar(DependencyObject? source)
-    {
-        DependencyObject? cur = source;
-        while (cur != null)
-        {
-            if (cur is ScrollBar) return true;
-            cur = VisualTreeHelper.GetParent(cur);
-        }
-        return false;
-    }
+    private static bool IsInsideScrollBar(DependencyObject? source) =>
+        AuraAudio.UI.Helpers.TreeNavigationHelper.FindAncestor<ScrollBar>(source) != null;
 
     private void ScrollActiveLineIntoView(bool immediate)
     {

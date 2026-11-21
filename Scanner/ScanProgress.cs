@@ -12,6 +12,7 @@ public record ScanProgress
     public int Added { get; init; }
     public int Skipped { get; init; }
     public int Failed { get; init; }
+    public int Removed { get; init; }
     public string CurrentFile { get; init; }
     public TimeSpan Elapsed { get; init; }
 
@@ -25,13 +26,15 @@ public record ScanProgress
         int skipped,
         string currentFile,
         TimeSpan elapsed,
-        int failed = 0)
+        int failed = 0,
+        int removed = 0)
     {
         TotalFound = totalFound;
         Processed = processed;
         Added = added;
         Skipped = skipped;
         Failed = failed;
+        Removed = removed;
         CurrentFile = currentFile;
         Elapsed = elapsed;
     }

@@ -44,13 +44,7 @@ public sealed class SafeFlacWaveStream : WaveStream
 
     public override long Position
     {
-        get
-        {
-            lock (_syncRoot)
-            {
-                return _positionBytes;
-            }
-        }
+        get => System.Threading.Volatile.Read(ref _positionBytes);
         set
         {
             lock (_syncRoot)
@@ -173,20 +167,27 @@ public sealed class SafeFlacWaveStream : WaveStream
         }
         if (count == 0) return 0;
 
+        return Read(buffer.AsSpan(offset, count));
+    }
+
+    public override int Read(Span<byte> buffer)
+    {
+        if (buffer.IsEmpty) return 0;
+
         lock (_syncRoot)
         {
             ObjectDisposedException.ThrowIf(_isDisposed, this);
 
             int totalRead = 0;
-            while (totalRead < count)
+            while (totalRead < buffer.Length)
             {
                 int avail = _framePcmByteLength - _framePcmByteOffset;
                 if (avail > 0)
                 {
-                    int toCopy = Math.Min(avail, count - totalRead);
-                    Buffer.BlockCopy(_framePcmBytes, _framePcmByteOffset, buffer, offset + totalRead, toCopy);
+                    int toCopy = Math.Min(avail, buffer.Length - totalRead);
+                    _framePcmBytes.AsSpan(_framePcmByteOffset, toCopy).CopyTo(buffer.Slice(totalRead, toCopy));
                     _framePcmByteOffset += toCopy;
-                    _positionBytes += toCopy;
+                    System.Threading.Volatile.Write(ref _positionBytes, _positionBytes + toCopy);
                     totalRead += toCopy;
                     continue;
                 }
@@ -207,7 +208,7 @@ public sealed class SafeFlacWaveStream : WaveStream
         }
     }
 
-    private bool DecodeNextFrameIntoBuffer()
+    private bool DecodeNextFrameIntoBuffer(bool packPcm = true)
     {
         long sampleBefore = _decoder.RunningSampleCount;
         if (!_decoder.DecodeFrame())
@@ -227,6 +228,26 @@ public sealed class SafeFlacWaveStream : WaveStream
             _framesDecodedSinceAnchor++;
         }
 
+        if (_decoder.RunningSampleCount > _totalSamples)
+        {
+            _totalSamples = _decoder.RunningSampleCount;
+        }
+
+        if (packPcm)
+        {
+            PackCurrentDecodedFrame();
+        }
+        else
+        {
+            _framePcmByteOffset = 0;
+            _framePcmByteLength = 0;
+        }
+
+        return true;
+    }
+
+    private void PackCurrentDecodedFrame()
+    {
         int sampleCount = _decoder.BufferSampleCount;
         int blockAlign = _waveFormat.BlockAlign;
         int byteCount = sampleCount * blockAlign;
@@ -238,13 +259,6 @@ public sealed class SafeFlacWaveStream : WaveStream
         PackSamplesToPcm(_decoder.BufferSamples, sampleCount, _decoder.ChannelCount, _outputBytesPerSample, _bitShiftLeft, _framePcmBytes);
         _framePcmByteOffset = 0;
         _framePcmByteLength = byteCount;
-
-        if (_decoder.RunningSampleCount > _totalSamples)
-        {
-            _totalSamples = _decoder.RunningSampleCount;
-        }
-
-        return true;
     }
 
     private static void PackSamplesToPcm(
@@ -355,7 +369,7 @@ public sealed class SafeFlacWaveStream : WaveStream
         {
             int relSample = (int)(targetSample - currentFrameStartSample);
             _framePcmByteOffset = relSample * blockAlign;
-            _positionBytes = targetSample * blockAlign;
+            System.Threading.Volatile.Write(ref _positionBytes, targetSample * blockAlign);
             _eofReached = false;
             return;
         }
@@ -377,27 +391,28 @@ public sealed class SafeFlacWaveStream : WaveStream
             _eofReached = false;
         }
 
-        // Decode forward frame-by-frame until we reach targetSample
+        // Decode forward frame-by-frame until we reach targetSample; skip PCM packing for discarded intermediate frames
         while (_decoder.RunningSampleCount <= targetSample)
         {
             long frameStartSample = _decoder.RunningSampleCount;
-            if (!DecodeNextFrameIntoBuffer())
+            if (!DecodeNextFrameIntoBuffer(packPcm: false))
             {
                 _eofReached = true;
-                _positionBytes = _decoder.RunningSampleCount * blockAlign;
+                System.Threading.Volatile.Write(ref _positionBytes, _decoder.RunningSampleCount * blockAlign);
                 return;
             }
 
             if (targetSample >= frameStartSample && targetSample < _decoder.RunningSampleCount)
             {
+                PackCurrentDecodedFrame();
                 int relSample = (int)(targetSample - frameStartSample);
                 _framePcmByteOffset = relSample * blockAlign;
-                _positionBytes = targetSample * blockAlign;
+                System.Threading.Volatile.Write(ref _positionBytes, targetSample * blockAlign);
                 return;
             }
         }
 
-        _positionBytes = targetSample * blockAlign;
+        System.Threading.Volatile.Write(ref _positionBytes, targetSample * blockAlign);
     }
 
     private SafeFlacDecoder.SeekPoint FindBestAnchor(long targetSample)

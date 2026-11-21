@@ -150,6 +150,7 @@
 
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="14,0,12,0">
                             <TextBlock Text="{Binding InspectedTrack.Title}"
+                                       AutomationProperties.AutomationId="Aura.Inspector.TrackTitle"
                                        Style="{StaticResource Text.Headline}"
                                        Foreground="{StaticResource Brush.Text.Peak}" />
                             <TextBlock Style="{StaticResource Text.Callout}"
@@ -170,6 +171,7 @@
                                 BorderBrush="{StaticResource Brush.Border.Control}"
                                 BorderThickness="1">
                             <TextBlock Text="{Binding InspectedTrack.StreamSpec.FormattedBadge}"
+                                       AutomationProperties.AutomationId="Aura.Inspector.FormatBadge"
                                        Style="{StaticResource Text.TabularMono}"
                                        Foreground="{StaticResource Brush.Text.Primary}"
                                        FontWeight="SemiBold" />

@@ -272,14 +272,6 @@ public partial class MiniPlayerWindow : Window
         }
     }
 
-    private static bool IsInsideInteractiveControl(DependencyObject? source)
-    {
-        DependencyObject? cur = source;
-        while (cur != null)
-        {
-            if (cur is ButtonBase || cur is Slider || cur is TextBoxBase) return true;
-            cur = VisualTreeHelper.GetParent(cur);
-        }
-        return false;
-    }
+    private static bool IsInsideInteractiveControl(DependencyObject? source) =>
+        TreeNavigationHelper.HasAncestor(source, static cur => cur is ButtonBase || cur is Slider || cur is TextBoxBase);
 }

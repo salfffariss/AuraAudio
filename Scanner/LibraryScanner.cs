@@ -71,12 +71,14 @@ public class LibraryScanner
 
         // 2. Temukan seluruh file audio yang didukung di dalam folder (Rekursif, melompati folder yang dikecualikan)
         var allAudioFiles = EnumerateAudioFiles(directoryPath, excludedFolders).ToList();
+        var discoveredSet = new HashSet<string>(allAudioFiles, StringComparer.OrdinalIgnoreCase);
         int totalFound = allAudioFiles.Count;
 
         int processedCount = 0;
         int addedCount = 0;
         int skippedCount = 0;
         int failedCount = 0;
+        int removedCount = 0;
 
         // Pisahkan file yang baru/berubah vs file yang sudah ada (tidak berubah)
         var filesToProcess = new List<string>(totalFound);
@@ -176,13 +178,31 @@ public class LibraryScanner
             FlushBatch(trackBatch);
         }
 
+        // 4. Prune tracks under this directory whose physical files were deleted, moved, or excluded
+        if (!cancellationToken.IsCancellationRequested)
+        {
+            var stalePaths = new List<string>();
+            foreach (var existingPath in existingSignatures.Keys)
+            {
+                if (IsPathUnderDirectory(existingPath, directoryPath) && !discoveredSet.Contains(existingPath))
+                {
+                    stalePaths.Add(existingPath);
+                }
+            }
+
+            if (stalePaths.Count > 0)
+            {
+                removedCount = _databaseManager.DeleteTracksByFilePaths(stalePaths);
+            }
+        }
+
         if (needsOneTimeSpecRefresh && !cancellationToken.IsCancellationRequested && persistSpecVersion)
         {
             try { _databaseManager.SetSetting("metadata_spec_version", currentSpecVersion); } catch { }
         }
 
         stopwatch.Stop();
-        var finalReport = new ScanProgress(totalFound, processedCount, addedCount, skippedCount, "Selesai", stopwatch.Elapsed, failedCount);
+        var finalReport = new ScanProgress(totalFound, processedCount, addedCount, skippedCount, "Selesai", stopwatch.Elapsed, failedCount, removedCount);
         progress?.Report(finalReport);
 
         return finalReport;
@@ -276,7 +296,8 @@ public class LibraryScanner
     }
 
     /// <summary>
-    /// Memindai beberapa folder musik secara berurutan dan asinkron.
+    /// Memindai beberapa folder musik secara berurutan dan asinkron, sekaligus membersihkan
+    /// entri database yang file fisiknya sudah dihapus dari penyimpanan yang terpasang.
     /// </summary>
     public async Task<ScanProgress> ScanDirectoriesAsync(
         IEnumerable<string> directoryPaths,
@@ -284,22 +305,97 @@ public class LibraryScanner
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(directoryPaths);
-        ScanProgress lastProgress = new ScanProgress(0, 0, 0, 0, "Selesai", TimeSpan.Zero);
+        var totalStopwatch = Stopwatch.StartNew();
+
+        int totalFound = 0;
+        int totalProcessed = 0;
+        int totalAdded = 0;
+        int totalSkipped = 0;
+        int totalFailed = 0;
+        int totalRemoved = 0;
 
         foreach (var dir in directoryPaths)
         {
             if (cancellationToken.IsCancellationRequested) break;
             if (Directory.Exists(dir))
             {
-                lastProgress = await ScanDirectoryInternalAsync(dir, progress, cancellationToken, persistSpecVersion: false);
+                var dirProgress = await ScanDirectoryInternalAsync(dir, progress, cancellationToken, persistSpecVersion: false);
+                totalFound += dirProgress.TotalFound;
+                totalProcessed += dirProgress.Processed;
+                totalAdded += dirProgress.Added;
+                totalSkipped += dirProgress.Skipped;
+                totalFailed += dirProgress.Failed;
+                totalRemoved += dirProgress.Removed;
             }
         }
 
+        // Also prune any remaining database entries whose physical file no longer exists on a mounted drive
+        // (never wipes tracks on disconnected/unplugged removable drives).
         if (!cancellationToken.IsCancellationRequested)
         {
+            var remainingSignatures = _databaseManager.GetExistingFileSignatures();
+            var missingOnMountedDrives = new List<string>();
+            foreach (var existingPath in remainingSignatures.Keys)
+            {
+                if (!File.Exists(existingPath) && IsDriveReady(existingPath))
+                {
+                    missingOnMountedDrives.Add(existingPath);
+                }
+            }
+
+            if (missingOnMountedDrives.Count > 0)
+            {
+                totalRemoved += _databaseManager.DeleteTracksByFilePaths(missingOnMountedDrives);
+            }
+
             try { _databaseManager.SetSetting("metadata_spec_version", "2"); } catch { }
         }
 
-        return lastProgress;
+        totalStopwatch.Stop();
+        var aggregated = new ScanProgress(
+            totalFound,
+            totalProcessed,
+            totalAdded,
+            totalSkipped,
+            "Selesai",
+            totalStopwatch.Elapsed,
+            totalFailed,
+            totalRemoved);
+        progress?.Report(aggregated);
+        return aggregated;
+    }
+
+    private static bool IsPathUnderDirectory(string filePath, string directoryPath)
+    {
+        try
+        {
+            string fullFile = Path.GetFullPath(filePath);
+            string fullDir = Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                             + Path.DirectorySeparatorChar;
+            return fullFile.StartsWith(fullDir, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsDriveReady(string filePath)
+    {
+        try
+        {
+            string? root = Path.GetPathRoot(Path.GetFullPath(filePath));
+            if (string.IsNullOrWhiteSpace(root)) return false;
+            if (root.StartsWith(@"\\", StringComparison.Ordinal))
+            {
+                // Network/UNC share: only treat as mounted if the share root directory is reachable
+                return Directory.Exists(root);
+            }
+            return new DriveInfo(root).IsReady;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
