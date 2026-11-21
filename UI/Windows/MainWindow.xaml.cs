@@ -1285,7 +1285,7 @@ public partial class MainWindow : Window
 
                     if (workEqualsMonitor && autoHideDetected)
                     {
-                        const int taskbarTriggerGapPx = 2;
+                        const int taskbarTriggerGapPx = 1;
                         switch (GetAutoHideTaskbarEdge())
                         {
                             case ABE_LEFT:

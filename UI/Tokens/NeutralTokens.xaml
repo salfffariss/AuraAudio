@@ -39,6 +39,8 @@
     <Color x:Key="Color.Overlay.ArtworkScrimBottom">#A6000000</Color>
     <Color x:Key="Color.Overlay.ZebraRow">#08FFFFFF</Color>
     <Color x:Key="Color.Overlay.TranslucentChrome">#EB0B0B0B</Color>
+    <Color x:Key="Color.Overlay.DockMaskTop">#00121212</Color>
+    <Color x:Key="Color.Overlay.DockMaskMid">#E6121212</Color>
     <Color x:Key="Color.Spectrum.GridLine">#1F1F1F</Color>
     <Color x:Key="Color.Spectrum.FillTop">#52FFFFFF</Color>
     <Color x:Key="Color.Spectrum.FillBottom">#08FFFFFF</Color>
@@ -141,6 +143,13 @@
     <LinearGradientBrush x:Key="Brush.Spectrum.Fill" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0.0" Color="{StaticResource Color.Spectrum.FillTop}" />
         <GradientStop Offset="1.0" Color="{StaticResource Color.Spectrum.FillBottom}" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Brush.Overlay.DockBottomMask" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0.00" Color="{StaticResource Color.Overlay.DockMaskTop}" />
+        <GradientStop Offset="0.55" Color="{StaticResource Color.Overlay.DockMaskMid}" />
+        <GradientStop Offset="0.82" Color="{StaticResource Color.Neutral.10}" />
+        <GradientStop Offset="1.00" Color="{StaticResource Color.Neutral.10}" />
     </LinearGradientBrush>
 
 </ResourceDictionary>

@@ -2257,6 +2257,58 @@ public class MainViewModel : ViewModelBase, IDisposable
         RefreshPlayHistory();
         Search.RefreshBrowseBricks();
         _ = Home.RefreshAsync();
+
+        // Synchronize active detail views so cleared or deleted items do not remain as ghosts.
+        if (SelectedAlbumDetail != null)
+        {
+            var tracks = _db.GetTracksByAlbum(SelectedAlbumDetail.Title, SelectedAlbumDetail.Artist);
+            if (tracks.Count == 0)
+            {
+                SelectedAlbumDetail = null;
+                SelectedAlbumDetailTracks.Clear();
+                if (CurrentView == "AlbumDetail") CurrentView = "Albums";
+            }
+            else
+            {
+                SelectedAlbumDetailTracks.ReplaceAll(tracks);
+            }
+        }
+
+        if (SelectedArtist != null)
+        {
+            var updatedArtist = DisplayedArtists.FirstOrDefault(a =>
+                string.Equals(a.Name, SelectedArtist.Name, StringComparison.OrdinalIgnoreCase));
+            if (updatedArtist == null)
+            {
+                SelectedArtist = null;
+                ArtistTracks.Clear();
+                ArtistAlbums.Clear();
+                ArtistAlbumGroups.Clear();
+                ArtistFeaturedTracks.Clear();
+                IsArtistDetailView = false;
+                if (CurrentView == "ArtistDetail") CurrentView = "Artists";
+            }
+            else
+            {
+                ViewArtistDetail(updatedArtist);
+            }
+        }
+
+        if (SelectedPlaylist != null)
+        {
+            var updatedPlaylist = SavedPlaylists.FirstOrDefault(p => p.Id == SelectedPlaylist.Id);
+            if (updatedPlaylist == null)
+            {
+                SelectedPlaylist = null;
+                SelectedPlaylistTracks.Clear();
+                if (CurrentView == "PlaylistDetail") CurrentView = "Playlists";
+            }
+            else
+            {
+                SelectedPlaylist = updatedPlaylist;
+                LoadSelectedPlaylistTracks();
+            }
+        }
     }
 
     private void RefreshAudioAfterSettingsMutation()
