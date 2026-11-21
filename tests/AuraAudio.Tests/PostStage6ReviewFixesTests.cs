@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -8,6 +9,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using AuraAudio.Core.Models;
@@ -878,6 +880,84 @@ public class PostStage6ReviewFixesTests
                 {
                     host.Close();
                 }
+            }
+        });
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Win32Rect { public int Left; public int Top; public int Right; public int Bottom; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct Win32MonitorInfo
+    {
+        public int cbSize;
+        public Win32Rect rcMonitor;
+        public Win32Rect rcWork;
+        public int dwFlags;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out Win32Rect lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref Win32MonitorInfo lpmi);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetProp(IntPtr hWnd, string lpString);
+
+    [DllImport("user32.dll")]
+    private static extern bool MoveWindow(IntPtr hWnd, int x, int y, int nWidth, int nHeight, bool bRepaint);
+
+    [Fact]
+    public void MaximizedAndResizedMainWindow_FillFullWorkAreaWithoutBottomGap_AndSetsNonRudeHwnd()
+    {
+        RunWithIsolatedViewModel((vm, _) =>
+        {
+            var win = new MainWindow(vm)
+            {
+                ShowInTaskbar = false,
+                Opacity = 0.01
+            };
+
+            try
+            {
+                win.Show();
+                win.UpdateLayout();
+
+                IntPtr hwnd = new WindowInteropHelper(win).Handle;
+                Assert.NotEqual(IntPtr.Zero, hwnd);
+                Assert.Equal(new IntPtr(1), GetProp(hwnd, "NonRudeHWND"));
+
+                IntPtr monitor = MonitorFromWindow(hwnd, 2);
+                Assert.NotEqual(IntPtr.Zero, monitor);
+                var mi = new Win32MonitorInfo { cbSize = Marshal.SizeOf<Win32MonitorInfo>() };
+                Assert.True(GetMonitorInfo(monitor, ref mi));
+
+                // 1. Maximized must fill the exact monitor work area with 0px bottom-edge gap
+                win.WindowState = WindowState.Maximized;
+                win.UpdateLayout();
+                Assert.True(GetWindowRect(hwnd, out var maxRect));
+                Assert.Equal(mi.rcWork.Left, maxRect.Left);
+                Assert.Equal(mi.rcWork.Top, maxRect.Top);
+                Assert.Equal(mi.rcWork.Right, maxRect.Right);
+                Assert.Equal(mi.rcWork.Bottom, maxRect.Bottom);
+
+                // 2. Normal manual resize to full monitor height must not be clamped short of the bottom edge
+                win.WindowState = WindowState.Normal;
+                win.UpdateLayout();
+                int monitorW = mi.rcMonitor.Right - mi.rcMonitor.Left;
+                int monitorH = mi.rcMonitor.Bottom - mi.rcMonitor.Top;
+                Assert.True(MoveWindow(hwnd, mi.rcMonitor.Left, mi.rcMonitor.Top, monitorW, monitorH, true));
+                Assert.True(GetWindowRect(hwnd, out var normalRect));
+                Assert.Equal(mi.rcMonitor.Right, normalRect.Right);
+                Assert.Equal(mi.rcMonitor.Bottom, normalRect.Bottom);
+            }
+            finally
+            {
+                win.Close();
             }
         });
     }

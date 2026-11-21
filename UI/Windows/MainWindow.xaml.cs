@@ -89,6 +89,11 @@ public partial class MainWindow : Window
         IntPtr hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != IntPtr.Zero)
         {
+            // Inform Windows Shell (CGlobalRudeWindowManager) that this borderless window is not
+            // a fullscreen-exclusive app so the auto-hide taskbar remains reachable even when
+            // Maximized covers 100% of rcMonitor with zero bottom-edge wallpaper gap.
+            SetProp(hwnd, NonRudeHwndProperty, new IntPtr(1));
+
             _hwndSource = HwndSource.FromHwnd(hwnd);
             _hwndSource?.AddHook(HwndMessageHook);
 
@@ -153,7 +158,11 @@ public partial class MainWindow : Window
         _viewModel.Presentation.PropertyChanged -= OnPresentationPropertyChanged;
 
         _viewModel.SaveSession();
-        _hwndSource?.RemoveHook(HwndMessageHook);
+        if (_hwndSource != null)
+        {
+            RemoveProp(_hwndSource.Handle, NonRudeHwndProperty);
+            _hwndSource.RemoveHook(HwndMessageHook);
+        }
         _mediaControlsManager?.Dispose();
         _viewModel.Dispose();
     }
@@ -1162,24 +1171,7 @@ public partial class MainWindow : Window
         public int dwFlags;
     }
 
-    private const uint ABM_GETSTATE = 0x00000004;
-    private const uint ABM_GETTASKBARPOS = 0x00000005;
-    private const int ABS_AUTOHIDE = 0x0000001;
-    private const uint ABE_LEFT = 0;
-    private const uint ABE_TOP = 1;
-    private const uint ABE_RIGHT = 2;
-    private const uint ABE_BOTTOM = 3;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct APPBARDATA
-    {
-        public uint cbSize;
-        public IntPtr hWnd;
-        public uint uCallbackMessage;
-        public uint uEdge;
-        public RECT rc;
-        public IntPtr lParam;
-    }
+    private const string NonRudeHwndProperty = "NonRudeHWND";
 
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
@@ -1190,11 +1182,11 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
 
-    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-    private static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetProp(IntPtr hWnd, string lpString, IntPtr hData);
 
-    [DllImport("shell32.dll")]
-    private static extern IntPtr SHAppBarMessage(uint dwMessage, ref APPBARDATA pData);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr RemoveProp(IntPtr hWnd, string lpString);
 
     private double GetWindowDpiScale(IntPtr hwnd)
     {
@@ -1207,25 +1199,6 @@ public partial class MainWindow : Window
 
         var fallback = System.Windows.Media.VisualTreeHelper.GetDpi(this);
         return fallback.DpiScaleX > 0 ? fallback.DpiScaleX : 1.0;
-    }
-
-    private static uint GetAutoHideTaskbarEdge()
-    {
-        try
-        {
-            var abd = new APPBARDATA
-            {
-                cbSize = (uint)Marshal.SizeOf<APPBARDATA>(),
-                hWnd = FindWindow("Shell_TrayWnd", null)
-            };
-            if (SHAppBarMessage(ABM_GETTASKBARPOS, ref abd) != IntPtr.Zero)
-            {
-                return abd.uEdge;
-            }
-        }
-        catch { }
-
-        return ABE_BOTTOM;
     }
 
     private IntPtr HwndMessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -1257,60 +1230,24 @@ public partial class MainWindow : Window
                     RECT rcWork = monitorInfo.rcWork;
                     RECT rcMonitor = monitorInfo.rcMonitor;
 
+                    // Fill the exact monitor work area with zero artificial bottom-edge inset.
+                    // NonRudeHWND preserves auto-hide taskbar reveal without exposing a 1-2px
+                    // desktop wallpaper strip below the maximized window, and leaving ptMaxTrackSize
+                    // unclamped lets users manually resize a Normal window all the way to the screen edge.
                     int maxX = rcWork.left - rcMonitor.left;
                     int maxY = rcWork.top - rcMonitor.top;
                     int maxW = rcWork.right - rcWork.left;
                     int maxH = rcWork.bottom - rcWork.top;
 
-                    // When Windows Auto-Hide Taskbar is enabled, rcWork == rcMonitor.
-                    // Filling the exact full monitor rect makes DWM treat borderless WPF windows
-                    // as fullscreen exclusive apps, blocking the auto-hide taskbar hover trigger.
-                    // Insetting the taskbar edge by 2 physical pixels restores normal taskbar access.
-                    bool workEqualsMonitor =
-                        rcWork.left == rcMonitor.left &&
-                        rcWork.top == rcMonitor.top &&
-                        rcWork.right == rcMonitor.right &&
-                        rcWork.bottom == rcMonitor.bottom;
-
-                    bool autoHideDetected = workEqualsMonitor;
-                    if (!autoHideDetected)
-                    {
-                        try
-                        {
-                            var stateData = new APPBARDATA { cbSize = (uint)Marshal.SizeOf<APPBARDATA>() };
-                            autoHideDetected = (SHAppBarMessage(ABM_GETSTATE, ref stateData).ToInt64() & ABS_AUTOHIDE) != 0;
-                        }
-                        catch { }
-                    }
-
-                    if (workEqualsMonitor && autoHideDetected)
-                    {
-                        const int taskbarTriggerGapPx = 1;
-                        switch (GetAutoHideTaskbarEdge())
-                        {
-                            case ABE_LEFT:
-                                maxX += taskbarTriggerGapPx;
-                                maxW -= taskbarTriggerGapPx;
-                                break;
-                            case ABE_TOP:
-                                maxY += taskbarTriggerGapPx;
-                                maxH -= taskbarTriggerGapPx;
-                                break;
-                            case ABE_RIGHT:
-                                maxW -= taskbarTriggerGapPx;
-                                break;
-                            default: // ABE_BOTTOM
-                                maxH -= taskbarTriggerGapPx;
-                                break;
-                        }
-                    }
-
                     mmi.ptMaxPosition.x = maxX;
                     mmi.ptMaxPosition.y = maxY;
                     mmi.ptMaxSize.x = maxW;
                     mmi.ptMaxSize.y = maxH;
-                    mmi.ptMaxTrackSize.x = Math.Max(maxW, mmi.ptMinTrackSize.x);
-                    mmi.ptMaxTrackSize.y = Math.Max(maxH, mmi.ptMinTrackSize.y);
+
+                    int monitorW = rcMonitor.right - rcMonitor.left;
+                    int monitorH = rcMonitor.bottom - rcMonitor.top;
+                    if (mmi.ptMaxTrackSize.x < monitorW) mmi.ptMaxTrackSize.x = monitorW;
+                    if (mmi.ptMaxTrackSize.y < monitorH) mmi.ptMaxTrackSize.y = monitorH;
                 }
             }
 

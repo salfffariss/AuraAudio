@@ -24,6 +24,7 @@ public static class DwmBackdropHelper
     // Pure neutral COLORREFs (0x00BBGGRR where R = G = B, matching NeutralTokens.xaml)
     private const int CAPTION_COLOR_NEUTRAL = 0x000B0B0B; // Neutral.05
     private const int BORDER_COLOR_NEUTRAL = 0x00323232;  // Neutral.25
+    private const int DWMWA_COLOR_NONE = unchecked((int)0xFFFFFFFE);
 
     public enum BackdropType
     {
@@ -83,6 +84,9 @@ public static class DwmBackdropHelper
         {
             int cornerPref = isMaximized ? DWMWCP_DONOTROUND : DWMWCP_ROUND;
             DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPref, sizeof(int));
+
+            int borderColor = isMaximized ? DWMWA_COLOR_NONE : BORDER_COLOR_NEUTRAL;
+            DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref borderColor, sizeof(int));
         }
         catch
         {
