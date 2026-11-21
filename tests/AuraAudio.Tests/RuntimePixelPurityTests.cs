@@ -342,8 +342,8 @@ public class RuntimePixelPurityTests
                 }
                 finally
                 {
-                    SetStaLanguage(prevLang);
                     SpringAnimator.ForceReducedMotionOverride = prevReduced;
+                    try { SetStaLanguage(prevLang); } catch { }
                     try { win?.Close(); } catch { }
                 }
             });
@@ -375,18 +375,14 @@ public class RuntimePixelPurityTests
             else merged.Add(next);
         }
 
+        // Update LocalizationManager._currentLanguage without broadcasting the static LanguageChanged
+        // event to disposed MainViewModel instances created by earlier WpfSta tests whose temp DBs
+        // were already deleted; re-assigning vm.CurrentIntegrityReport refreshes both report strings
+        // and SpekSpectrumControl visuals, while {DynamicResource} bindings update immediately.
         var field = typeof(LocalizationManager).GetField(
             "_currentLanguage",
             System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
         field?.SetValue(null, langCode);
-
-        var evtField = typeof(LocalizationManager).GetField(
-            "LanguageChanged",
-            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-        if (evtField?.GetValue(null) is Action handler)
-        {
-            handler.Invoke();
-        }
     }
 
     private static void WriteSyntheticUpscaledHiRes192kWav(string path)
