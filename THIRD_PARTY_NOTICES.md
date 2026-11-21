@@ -48,4 +48,30 @@ Not included in published standalone release binaries:
 ## Licensing Notes
 
 - **LGPL-2.1-only (`TagLibSharp`):** `TagLibSharp` is licensed under the GNU Lesser General Public License v2.1 only. Complete buildable source code and build instructions for AuraAudio are provided in this repository so recipients can rebuild and relink AuraAudio against a modified or updated version of `TagLibSharp`.
-- **MIT (`SimpleFlac`):** `Audio/Flac/SafeFlacDecoder.cs` is derived from `SimpleFlac` (J.D. Purcell / Project Nayuki) under the MIT License; full copyright and permission notices are preserved in the source header.
+- **MIT (`SimpleFlac` / Project Nayuki):** `Audio/Flac/SafeFlacDecoder.cs` is derived from `jdpurcell/SimpleFlac` (MIT License) and Project Nayuki's Simple FLAC decoder (MIT License). Verbatim upstream copyright and permission notices (verified from `https://raw.githubusercontent.com/jdpurcell/SimpleFlac/main/LICENSE.txt` and `https://www.nayuki.io/res/simple-flac-implementation/SimpleDecodeFlacToWav.java`):
+
+```text
+License: MIT
+
+Copyright (c) J.D. Purcell (C# port and enhancements)
+Copyright (c) 2017 Project Nayuki (Simple FLAC decoder in Java)
+https://www.nayuki.io/page/simple-flac-implementation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

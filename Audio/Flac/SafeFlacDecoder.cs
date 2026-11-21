@@ -1,8 +1,12 @@
 // Derived from SimpleFlac (MIT License) with AuraAudio RFC 9639 safety, seeking, CRC, and performance extensions.
+// Upstream sources verified:
+//   - https://github.com/jdpurcell/SimpleFlac (LICENSE.txt & FlacDecoder.cs)
+//   - https://www.nayuki.io/res/simple-flac-implementation/SimpleDecodeFlacToWav.java
 //
 // License: MIT
+//
 // Copyright (c) J.D. Purcell (C# port and enhancements)
-// Copyright (c) Project Nayuki (Simple FLAC decoder in Java)
+// Copyright (c) 2017 Project Nayuki (Simple FLAC decoder in Java)
 // https://www.nayuki.io/page/simple-flac-implementation
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of
