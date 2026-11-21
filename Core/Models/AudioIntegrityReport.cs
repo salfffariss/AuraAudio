@@ -29,6 +29,11 @@ public enum AuthenticityVerdict
     UpscaledFromCd,
 
     /// <summary>
+    /// Wadah Hi-Res (mis. 96/192/384 kHz) yang di-upsample dari master ber-sample-rate lebih rendah (mis. 48/88.2/96/192 kHz).
+    /// </summary>
+    UpscaledHiRes,
+
+    /// <summary>
     /// Berkas berwadah 24-bit yang diisi derau dither 16-bit tanpa detail rekaman 24-bit nyata.
     /// </summary>
     Dithered16BitUpscale,
@@ -118,6 +123,7 @@ public record AudioIntegrityReport
         AuthenticityVerdict.AcousticNaturalRollOff => "Genuine",
         AuthenticityVerdict.HybridMaster => "Info",
         AuthenticityVerdict.UpscaledFromCd => "Caution",
+        AuthenticityVerdict.UpscaledHiRes => "Caution",
         AuthenticityVerdict.Dithered16BitUpscale => "Caution",
         AuthenticityVerdict.ZeroPadded24Bit => "Caution",
         AuthenticityVerdict.SuspectedUpscaledLossy => "Fake",
@@ -149,6 +155,9 @@ public record AudioIntegrityReport
                 AuthenticityVerdict.UpscaledFromCd => en
                     ? "Upscaled from CD (44.1 kHz)"
                     : "Upscale dari Kualitas CD (44.1 kHz)",
+                AuthenticityVerdict.UpscaledHiRes => en
+                    ? "Upscaled Hi-Res (Lower Source Rate)"
+                    : "Upscale Hi-Res (Rate Sumber Lebih Rendah)",
                 AuthenticityVerdict.Dithered16BitUpscale => en
                     ? "Fake 24-Bit (16-Bit with Dither)"
                     : "24-Bit Palsu (Isi 16-Bit + Dither)",
@@ -307,6 +316,9 @@ public record AudioIntegrityReport
                 AuthenticityVerdict.UpscaledFromCd => en
                     ? $"File claims {SourceSpec.SampleRateHz / 1000.0:F1} kHz, but real audio stops at the 22.05 kHz CD limit."
                     : $"Wadah {SourceSpec.SampleRateHz / 1000.0:F1} kHz, tetapi isi suara berhenti di batas CD 22.05 kHz.",
+                AuthenticityVerdict.UpscaledHiRes => en
+                    ? $"File claims {SourceSpec.SampleRateHz / 1000.0:F1} kHz, but real audio stops at the ~{cutKhz:F1} kHz limit of a lower-rate master."
+                    : $"Wadah {SourceSpec.SampleRateHz / 1000.0:F1} kHz, tetapi isi suara berhenti di batas ~{cutKhz:F1} kHz dari master ber-rate lebih rendah.",
                 AuthenticityVerdict.SuspectedUpscaledLossy => en
                     ? $"Sharp frequency cutoff at ~{cutKhz:F1} kHz (typical MP3/AAC encoding limit)."
                     : $"Suara terpotong tajam di ~{cutKhz:F1} kHz (ciri khas hasil kompresi MP3/AAC).",
@@ -460,6 +472,8 @@ public record AudioIntegrityReport
                 (dropVal < 10.0 && cliffVal < 15.0)
                     ? $"Likely consistent with upsampling from a 44.1 kHz CD master: container is {SourceSpec.SampleRateHz / 1000.0:F1} kHz, with a transition near 22.05 kHz (drop {dropVal:F1} dB)."
                     : $"Consistent with upsampling from a 44.1 kHz CD master: container is {SourceSpec.SampleRateHz / 1000.0:F1} kHz, but measured energy drops sharply near 22.05 kHz.",
+            AuthenticityVerdict.UpscaledHiRes =>
+                $"Consistent with upsampling from a ~{DetectedCutoffHz * 2 / 1000.0:F1} kHz master: container is {SourceSpec.SampleRateHz / 1000.0:F1} kHz, but measured energy drops sharply near the {DetectedCutoffHz / 1000.0:F1} kHz Nyquist boundary with a silent upper band.",
             AuthenticityVerdict.Dithered16BitUpscale =>
                 $"Consistent with an export from a 16-bit TPDF-dithered master: container is 24-bit, while upper bands show a flat 16-bit dither floor ({UltrasonicNoiseFloorDbFS:F1} dBFS).",
             AuthenticityVerdict.ZeroPadded24Bit =>

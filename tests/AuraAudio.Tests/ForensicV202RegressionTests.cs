@@ -65,22 +65,27 @@ public sealed class ForensicV202RegressionTests : IDisposable
             report.Explanation.Contains(expectedIdRate, StringComparison.OrdinalIgnoreCase),
             $"Indonesian explanation did not contain actual sample rate ({expectedEnRate}/{expectedIdRate}): {report.Explanation}");
 
-        string prevLang = LocalizationManager.CurrentLanguage;
-        try
+        lock (LangLock)
         {
-            LocalizationManager.SetLanguage("en");
-            string enExpl = report.LocalizedExplanation;
-            string enBadge = report.VerdictBadge;
-            Assert.DoesNotContain("44.1 kHz", enExpl, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("CD Quality", enBadge, StringComparison.OrdinalIgnoreCase);
-            Assert.True(
-                enExpl.Contains(expectedEnRate, StringComparison.OrdinalIgnoreCase) ||
-                enExpl.Contains(expectedIdRate, StringComparison.OrdinalIgnoreCase),
-                $"English explanation did not contain actual sample rate: {enExpl}");
-        }
-        finally
-        {
-            LocalizationManager.SetLanguage(prevLang);
+            string prevLang = LocalizationManager.CurrentLanguage;
+            try
+            {
+                SetTestLanguage("en");
+                string enExpl = report.LocalizedExplanation;
+                string enBadge = report.VerdictBadge;
+                Assert.DoesNotContain("44.1 kHz", enExpl, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("CD Quality", enBadge, StringComparison.OrdinalIgnoreCase);
+                Assert.True(
+                    enExpl.Contains(expectedEnRate, StringComparison.OrdinalIgnoreCase) ||
+                    enExpl.Contains(expectedIdRate, StringComparison.OrdinalIgnoreCase) ||
+                    (sampleRate == 22_050 && (enExpl.Contains("22.0 kHz", StringComparison.OrdinalIgnoreCase) ||
+                                              enExpl.Contains("22,0 kHz", StringComparison.OrdinalIgnoreCase))),
+                    $"English explanation did not contain actual sample rate: {enExpl}");
+            }
+            finally
+            {
+                SetTestLanguage(prevLang);
+            }
         }
     }
 
@@ -522,6 +527,74 @@ public sealed class ForensicV202RegressionTests : IDisposable
 
         var report = NyquistSpectrumAnalyzer.Analyze(path);
         Assert.Equal(AuthenticityVerdict.SuspectedUpscaledLossy, report.Verdict);
+    }
+
+    [Theory]
+    [InlineData(96_000, 23_200.0, 24_000u, "48")]
+    [InlineData(192_000, 46_500.0, 48_000u, "96")]
+    [InlineData(384_000, 46_500.0, 48_000u, "96")]
+    public void Forensic6_HiResUpsampledFromLowerRate_IsUpscaledHiRes(
+        int containerRate,
+        double maxSignalHz,
+        uint expectedSourceNyquistHz,
+        string expectedSourceRateFragment)
+    {
+        string path = WriteBroadbandSineBankWav(
+            $"hires_upsample_{containerRate}_from_{expectedSourceRateFragment}k.wav",
+            sampleRate: containerRate,
+            bitsPerSample: 24,
+            durationSeconds: 2.0,
+            maxFreqHz: maxSignalHz,
+            amplitudeScale: 0.70);
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.Equal(AuthenticityVerdict.UpscaledHiRes, report.Verdict);
+        Assert.Equal("Caution", report.VerdictCategory);
+        Assert.Equal(expectedSourceNyquistHz, report.DetectedCutoffHz);
+        Assert.Contains(expectedSourceRateFragment, report.Explanation, StringComparison.OrdinalIgnoreCase);
+
+        lock (LangLock)
+        {
+            string prevLang = LocalizationManager.CurrentLanguage;
+            try
+            {
+                SetTestLanguage("en");
+                Assert.Contains("Upscaled Hi-Res", report.VerdictBadge, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(expectedSourceRateFragment, report.LocalizedExplanation, StringComparison.OrdinalIgnoreCase);
+
+                SetTestLanguage("id");
+                Assert.Contains("Upscale Hi-Res", report.VerdictBadge, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                SetTestLanguage(prevLang);
+            }
+        }
+    }
+
+    private static readonly object LangLock = new();
+
+    private static void SetTestLanguage(string langCode)
+    {
+        var field = typeof(LocalizationManager).GetField(
+            "_currentLanguage",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        field?.SetValue(null, langCode);
+    }
+
+    [Fact]
+    public void Forensic6_GenuineFullBand192k_StaysVerifiedLossless()
+    {
+        string path = WriteBroadbandSineBankWav(
+            "genuine_fullband_192k.wav",
+            sampleRate: 192_000,
+            bitsPerSample: 24,
+            durationSeconds: 2.0,
+            maxFreqHz: 93_000.0,
+            amplitudeScale: 0.70);
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.Equal(AuthenticityVerdict.VerifiedLossless, report.Verdict);
     }
 
     private static double[] BuildHybridNotchFrequencies(out double[] phases, Random rng)

@@ -38,6 +38,7 @@ WORKER_EXE = (
 FALSE_FAKE_VERDICTS = {
     "SuspectedUpscaledLossy",
     "UpscaledFromCd",
+    "UpscaledHiRes",
     "Dithered16BitUpscale",
     "ZeroPadded24Bit",
     "StandardLossy",

@@ -699,6 +699,7 @@ public class SyntheticCorpusTests : IDisposable
             AuthenticityVerdict.HybridMaster,
             AuthenticityVerdict.ZeroPadded24Bit,
             AuthenticityVerdict.UpscaledFromCd,
+            AuthenticityVerdict.UpscaledHiRes,
             AuthenticityVerdict.Dithered16BitUpscale,
             AuthenticityVerdict.SuspectedUpscaledLossy,
             AuthenticityVerdict.StandardLossy,
@@ -775,6 +776,7 @@ public class SyntheticCorpusTests : IDisposable
             {
                 if (r.Verdict is AuthenticityVerdict.SuspectedUpscaledLossy
                               or AuthenticityVerdict.UpscaledFromCd
+                              or AuthenticityVerdict.UpscaledHiRes
                               or AuthenticityVerdict.Dithered16BitUpscale
                               or AuthenticityVerdict.ZeroPadded24Bit)
                 {

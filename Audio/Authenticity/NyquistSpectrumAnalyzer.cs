@@ -142,6 +142,19 @@ public static class NyquistSpectrumAnalyzer
     private const uint LossyEnvelopeContradictionMinGapHz = 2_500;
     private const double LossyEnvelopeFullBandMinRatio = 0.90;
 
+    // Hi-Res-to-Hi-Res upsampling across standard Nyquist boundaries (FORENSIC #6):
+    // Scans lower standard sample rates <= 85% of container rate (48, 88.2, 96, 176.4, 192 kHz) so candidates
+    // never overlap the container's own anti-aliasing transition (e.g., 88.2k inside 96k).
+    // DEV distributions: fake Hi-Res upsamples drop 42.2..79.0 dB into -160 dBFS vs genuine Hi-Res max drop +0.3 dB.
+    private static readonly uint[] StandardHiResSourceRatesHz = [48_000, 88_200, 96_000, 176_400, 192_000];
+    private const double HiResUpsampleMaxSourceToContainerRatio = 0.85;
+    private const double HiResUpsampleMinPassbandDbFS = -130.0;
+    private const double HiResUpsampleMinDropDb = 25.0;
+    private const double HiResUpsampleMaxSlopeDbPerOct = -60.0;
+    private const double HiResUpsampleMaxUpperBandDbFS = -125.0;
+    private const double HiResUpsampleMinUpperDropDb = 28.0;
+    private const double HiResUpsampleMaxEnvUpperBandDbFS = -120.0;
+
     private const string AacOpusCaveatId =
         "Catatan: berkas AAC/Opus bitrate tinggi tanpa lowpass kaku tidak dapat dibedakan melalui analisis spektrum saja.";
 
@@ -558,6 +571,12 @@ public static class NyquistSpectrumAnalyzer
                     ? "Kemungkinan besar konsisten dengan upsampling dari master CD 44.1 kHz"
                     : "Konsisten dengan upsampling dari master CD 44.1 kHz";
                 explanation = $"Wadah berlabel {sourceSpec.FormattedBadge}, namun energi spektral turun tajam di sekitar batas CD 22.05 kHz (kemiringan {slopeCdTransition:F1} dB/oktaf, tebing {cliffDropDb:F1} dB @ {cliffHz / 1000.0:F2} kHz, drop knee {dropAcrossKnee:F1} dB, level @ 22.05k: {p22k:F1} dBFS). {hedge}.";
+            }
+            else if (DetectHiResUpsampleFromLowerRate(avgPower, envPower, binResolution, sampleRate, nyquistLimitHz, upperEnvelopeReachHz) is { Detected: true } hiResUp)
+            {
+                verdict = AuthenticityVerdict.UpscaledHiRes;
+                detectedCutoffHz = hiResUp.SourceNyquistHz;
+                explanation = $"Wadah berlabel {sourceSpec.FormattedBadge}, namun energi spektral berhenti tajam di batas Nyquist ~{hiResUp.SourceNyquistHz / 1000.0:F1} kHz (penurunan {hiResUp.DropDb:F1} dB, kemiringan {hiResUp.LocalSlopeDbPerOct:F1} dB/oktaf, pita atas {hiResUp.UpperBandDbFS:F1} dBFS). Konsisten dengan upsampling dari master {hiResUp.SourceSampleRateHz / 1000.0:F1} kHz.";
             }
             else if (bitsPerSample >= 24 && isZeroPadded)
             {
@@ -1781,6 +1800,110 @@ public static class NyquistSpectrumAnalyzer
         }
 
         return (detected, bestCutoffHz, bestSteepness, bestDropDb);
+    }
+
+    /// <summary>
+    /// FORENSIC #6: Detects Hi-Res-to-Hi-Res upsampling across standard lower Nyquist boundaries
+    /// (48 -&gt; 96/192 kHz, 88.2 -&gt; 176.4 kHz, 96 -&gt; 192/384 kHz, 176.4 -&gt; 352.8 kHz, 192 -&gt; 384 kHz).
+    /// Requires all four physical criteria: active passband signal below f_src, sharp brickwall drop &gt;= 25 dB
+    /// and steepness &lt;= -60 dB/oct across f_src, silent/quantized upper band above 1.05 * f_src, and multi-segment
+    /// P90 envelope confirmation (no active ultrasonic overtones anywhere above 1.03 * f_src).
+    /// </summary>
+    private static (bool Detected, uint SourceSampleRateHz, uint SourceNyquistHz, double DropDb, double LocalSlopeDbPerOct, double UpperBandDbFS)
+        DetectHiResUpsampleFromLowerRate(
+            double[] avgPower,
+            double[] envPower,
+            double binResolution,
+            uint sampleRate,
+            uint nyquistLimitHz,
+            uint upperEnvelopeReachHz)
+    {
+        if (sampleRate < 88_200 || binResolution <= 0.0 || avgPower.Length == 0 || envPower.Length == 0)
+        {
+            return (false, 0, 0, 0.0, 0.0, -160.0);
+        }
+
+        bool found = false;
+        uint bestSrcSr = 0;
+        uint bestSrcNyq = 0;
+        double bestDrop = 0.0;
+        double bestSlope = 0.0;
+        double bestUpper = -160.0;
+
+        double maxValidUpperHz = nyquistLimitHz - Math.Max(200.0, binResolution * 2.0);
+
+        foreach (uint srcSr in StandardHiResSourceRatesHz)
+        {
+            if (srcSr > sampleRate * HiResUpsampleMaxSourceToContainerRatio)
+            {
+                continue;
+            }
+
+            double fSrc = srcSr / 2.0;
+            double upperStartHz = fSrc * 1.05;
+            if (upperStartHz >= maxValidUpperHz - binResolution * 4.0)
+            {
+                continue;
+            }
+
+            double beforeLo = fSrc * 0.85;
+            double beforeHi = fSrc * 0.94;
+            double afterLo = fSrc * 1.03;
+            double afterHi = Math.Min(maxValidUpperHz, fSrc * 1.15);
+            if (afterHi <= afterLo + binResolution)
+            {
+                continue;
+            }
+
+            double beforeDb = GetBandPowerDb(0.5 * (beforeLo + beforeHi), 0.5 * (beforeHi - beforeLo), avgPower, binResolution);
+            if (beforeDb <= HiResUpsampleMinPassbandDbFS)
+            {
+                continue;
+            }
+
+            double afterNearDb = GetBandPowerDb(0.5 * (afterLo + afterHi), 0.5 * (afterHi - afterLo), avgPower, binResolution);
+            double dropDb = beforeDb - afterNearDb;
+            if (dropDb < HiResUpsampleMinDropDb)
+            {
+                continue;
+            }
+
+            double localSlope = ComputeSpectralSlope(fSrc * 0.92, Math.Min(maxValidUpperHz, fSrc * 1.04), avgPower, binResolution);
+            if (localSlope > HiResUpsampleMaxSlopeDbPerOct)
+            {
+                continue;
+            }
+
+            double upperAllDb = GetBandPowerDb(0.5 * (upperStartHz + maxValidUpperHz), 0.5 * (maxValidUpperHz - upperStartHz), avgPower, binResolution);
+            if (upperAllDb > HiResUpsampleMaxUpperBandDbFS || (beforeDb - upperAllDb) < HiResUpsampleMinUpperDropDb)
+            {
+                continue;
+            }
+
+            double upperEnvDb = GetBandPowerDb(0.5 * (upperStartHz + maxValidUpperHz), 0.5 * (maxValidUpperHz - upperStartHz), envPower, binResolution);
+            if (upperEnvDb > HiResUpsampleMaxEnvUpperBandDbFS)
+            {
+                continue;
+            }
+
+            uint maxAllowedReachHz = (uint)Math.Round(fSrc * 1.03);
+            if (upperEnvelopeReachHz > maxAllowedReachHz)
+            {
+                continue;
+            }
+
+            if (!found || dropDb > bestDrop || (Math.Abs(dropDb - bestDrop) < 1.0 && srcSr > bestSrcSr))
+            {
+                found = true;
+                bestSrcSr = srcSr;
+                bestSrcNyq = srcSr / 2;
+                bestDrop = Math.Round(dropDb, 1);
+                bestSlope = Math.Round(localSlope, 1);
+                bestUpper = Math.Round(upperAllDb, 1);
+            }
+        }
+
+        return (found, bestSrcSr, bestSrcNyq, bestDrop, bestSlope, bestUpper);
     }
 
     private static double ComputeBandStdDevDb(double startFreq, double endFreq, double[] avgPower, double binResolution)
