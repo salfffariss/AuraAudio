@@ -106,6 +106,155 @@ public sealed class ForensicV202RegressionTests : IDisposable
             $"Expected actual sample rate 32.0 kHz in explanation: {report.Explanation}");
     }
 
+    [Fact]
+    public void Forensic5_SoftBroadbandGenuine24_96_IsVerifiedLossless_NotHybridMaster()
+    {
+        // Reproduces genuine 24/96 soft broadband signal (~ -88 dBFS ultrasonic floor, continuous across 20-46 kHz,
+        // zero notch between 20 and 22.5 kHz) that previously triggered false HybridMaster.
+        string path = Path.Combine(_tempDir, "gen_soft_24_96.wav");
+        const int sr = 96_000;
+        int totalSamples = sr * 3;
+        var rng = new Random(5051);
+
+        var wf = new WaveFormat(sr, 24, 2);
+        using (var writer = new WaveFileWriter(path, wf))
+        {
+            byte[] buf = new byte[3];
+            for (int i = 0; i < totalSamples; i++)
+            {
+                double t = (double)i / sr;
+                // Modest audible content + continuous flat-ish genuine broadband ultrasonic tail (~ -87 dBFS per FFT bin)
+                double audible = 0.08 * Math.Sin(2.0 * Math.PI * 1200.0 * t)
+                               + 0.05 * Math.Sin(2.0 * Math.PI * 2800.0 * t)
+                               + 0.002 * Math.Sin(2.0 * Math.PI * 19800.0 * t)
+                               + 0.002 * Math.Sin(2.0 * Math.PI * 22500.0 * t)
+                               + 0.002 * Math.Sin(2.0 * Math.PI * 35000.0 * t)
+                               + 0.002 * Math.Sin(2.0 * Math.PI * 42000.0 * t);
+                double hfNoise = (rng.NextDouble() * 2.0 - 1.0) * 0.0018;
+                double val = Math.Clamp(audible + hfNoise, -0.95, 0.95);
+                WritePcmSample(writer, val, 24, buf);
+                WritePcmSample(writer, val, 24, buf);
+            }
+        }
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.Equal(AuthenticityVerdict.VerifiedLossless, report.Verdict);
+    }
+
+    [Fact]
+    public void Forensic5_SyntheticHybridMaster_FrequencyNotchAndUltrasonicRebound_FiresHybridMaster()
+    {
+        // Simultaneous hybrid DAW mix: strong 44.1 kHz band-limited stem (0.3-20.5 kHz) + dead notch at 22.5 kHz
+        // + active 96 kHz studio overtones at 35-42 kHz.
+        string path = Path.Combine(_tempDir, "hybrid_freq_notch_24_96.wav");
+        const int sr = 96_000;
+        int totalSamples = sr * 3;
+        var rng = new Random(5052);
+
+        double[] freqs = BuildHybridNotchFrequencies(out double[] phases, rng);
+        double[] mono = new double[totalSamples];
+        double maxAbs = 1e-12;
+        for (int i = 0; i < totalSamples; i++)
+        {
+            double t = (double)i / sr;
+            double sum = 0.0;
+            for (int k = 0; k < freqs.Length; k++)
+            {
+                double w = freqs[k] > 30_000.0 ? 0.35 : 1.0;
+                sum += w * Math.Sin(2.0 * Math.PI * freqs[k] * t + phases[k]);
+            }
+            mono[i] = sum;
+            double a = Math.Abs(sum);
+            if (a > maxAbs) maxAbs = a;
+        }
+
+        double scale = 0.65 / maxAbs;
+        var wf = new WaveFormat(sr, 24, 2);
+        using (var writer = new WaveFileWriter(path, wf))
+        {
+            byte[] buf = new byte[3];
+            for (int i = 0; i < totalSamples; i++)
+            {
+                double val = mono[i] * scale;
+                WritePcmSample(writer, val, 24, buf);
+                WritePcmSample(writer, val, 24, buf);
+            }
+        }
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.Equal(AuthenticityVerdict.HybridMaster, report.Verdict);
+    }
+
+    [Fact]
+    public void Forensic5_SyntheticHybridMaster_TimeSplicedCdAndFullBand_FiresHybridMaster()
+    {
+        // Time-spliced hybrid master (12 s @ 24/96):
+        // - First half (0..6 s): louder CD-band-limited section (0.3-20.5 kHz, brickwall above 21 kHz)
+        // - Second half (6..12 s): full-band 96 kHz studio section (0.3-44 kHz)
+        string path = Path.Combine(_tempDir, "hybrid_time_spliced_24_96.wav");
+        const int sr = 96_000;
+        int halfSamples = sr * 6;
+        var rng = new Random(5053);
+
+        var cdFreqs = new System.Collections.Generic.List<double>();
+        for (double f = 400.0; f <= 20_600.0; f += 300.0) cdFreqs.Add(f);
+        var fullFreqs = new System.Collections.Generic.List<double>();
+        for (double f = 400.0; f <= 44_000.0; f += 400.0) fullFreqs.Add(f);
+
+        double[] cdPhases = new double[cdFreqs.Count];
+        for (int k = 0; k < cdPhases.Length; k++) cdPhases[k] = rng.NextDouble() * 2.0 * Math.PI;
+        double[] fullPhases = new double[fullFreqs.Count];
+        for (int k = 0; k < fullPhases.Length; k++) fullPhases[k] = rng.NextDouble() * 2.0 * Math.PI;
+
+        var wf = new WaveFormat(sr, 24, 2);
+        using (var writer = new WaveFileWriter(path, wf))
+        {
+            byte[] buf = new byte[3];
+            double cdScale = 0.045;    // Louder RMS section (0..6s) -> picked as loudest section
+            double fullScale = 0.025;  // Slightly quieter full-band section (6..12s) -> captured by P90 envelope
+
+            for (int i = 0; i < halfSamples; i++)
+            {
+                double t = (double)i / sr;
+                double sum = 0.0;
+                for (int k = 0; k < cdFreqs.Count; k++)
+                {
+                    sum += Math.Sin(2.0 * Math.PI * cdFreqs[k] * t + cdPhases[k]);
+                }
+                double val = Math.Clamp(sum * cdScale / Math.Sqrt(cdFreqs.Count) * 2.5, -0.92, 0.92);
+                WritePcmSample(writer, val, 24, buf);
+                WritePcmSample(writer, val, 24, buf);
+            }
+
+            for (int i = 0; i < halfSamples; i++)
+            {
+                double t = (double)i / sr;
+                double sum = 0.0;
+                for (int k = 0; k < fullFreqs.Count; k++)
+                {
+                    sum += Math.Sin(2.0 * Math.PI * fullFreqs[k] * t + fullPhases[k]);
+                }
+                double val = Math.Clamp(sum * fullScale / Math.Sqrt(fullFreqs.Count) * 2.5, -0.92, 0.92);
+                WritePcmSample(writer, val, 24, buf);
+                WritePcmSample(writer, val, 24, buf);
+            }
+        }
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.Equal(AuthenticityVerdict.HybridMaster, report.Verdict);
+    }
+
+    private static double[] BuildHybridNotchFrequencies(out double[] phases, Random rng)
+    {
+        var list = new System.Collections.Generic.List<double>();
+        for (double f = 400.0; f <= 20_600.0; f += 300.0) list.Add(f);
+        // Notch in 20.6..33.0 kHz (empty CD stopband)
+        for (double f = 34_000.0; f <= 42_500.0; f += 350.0) list.Add(f);
+        phases = new double[list.Count];
+        for (int i = 0; i < phases.Length; i++) phases[i] = rng.NextDouble() * 2.0 * Math.PI;
+        return list.ToArray();
+    }
+
     private string WriteBroadbandSineBankWav(
         string fileName,
         int sampleRate,

@@ -104,6 +104,9 @@ public static class NyquistSpectrumAnalyzer
     private const double HybridP35kMinDbFS = -90.0;
     private const double HybridP40kMinDbFS = -95.0;
     private const double HybridMinNoiseStdDevDb = 2.5;
+    private const double HybridCdNotchMinDropDb = 12.0;
+    private const double HybridUltrasonicReboundMinDb = 6.0;
+    private const uint HybridMinEnvelopeReachHz = 35_000;
 
     // Resampler imaging / aliasing mirror detection
     private const double ImagingMinCorrelation = 0.65;
@@ -401,6 +404,8 @@ public static class NyquistSpectrumAnalyzer
         double p24k     = GetBandPowerDb(24_000, BandHalfWidthNarrowHz, avgPower, binResolution);
         double p35k     = GetBandPowerDb(35_000, BandHalfWidthHiResHz, avgPower, binResolution);
         double p40k     = GetBandPowerDb(40_000, BandHalfWidthHiResHz, avgPower, binResolution);
+        double p35kEnv  = GetBandPowerDb(35_000, BandHalfWidthHiResHz, envPower, binResolution);
+        double p40kEnv  = GetBandPowerDb(40_000, BandHalfWidthHiResHz, envPower, binResolution);
         double pNyquist = GetBandPowerDb(Math.Max(1000, nyquistLimitHz - binResolution), 200, avgPower, binResolution);
 
         double relP16k = p16k - pRef;
@@ -473,6 +478,29 @@ public static class NyquistSpectrumAnalyzer
                  cliffDropDb < CdCliffMinDropDb &&
                  imagingCorrelation < HiResSmoothContinuationMaxImagingR);
 
+            // FORENSIC #5: Require real CD-boundary notch/drop between 20 and 22.5 kHz AND genuine ultrasonic
+            // rebound above 35 kHz (simultaneous spectral notch OR time-spliced CD + full-band sections via P90 envelope).
+            bool hasCdBoundaryNotchForHybrid =
+                (p20k - p22_5k >= HybridCdNotchMinDropDb) &&
+                (slopeCdTransition <= CdBrickwallMaxSlopeDbPerOct ||
+                 (cliffHz >= CdCliffMinHz && cliffHz <= CdCliffMaxHz && cliffDropDb >= CdCliffMinDropDb));
+
+            bool hasSimultaneousUltrasonicRebound =
+                (p35k > HybridP35kMinDbFS || p40k > HybridP40kMinDbFS) &&
+                (Math.Max(p35k, p40k) - p22_5k >= HybridUltrasonicReboundMinDb) &&
+                noiseStdDevDb >= HybridMinNoiseStdDevDb;
+
+            bool hasTimeSplicedUltrasonicRebound =
+                (p35kEnv > HybridP35kMinDbFS || p40kEnv > HybridP40kMinDbFS) &&
+                (Math.Max(p35kEnv, p40kEnv) - p22_5k >= HybridUltrasonicReboundMinDb) &&
+                upperEnvelopeReachHz >= HybridMinEnvelopeReachHz;
+
+            bool isTrueHybridMaster =
+                hasCdBoundaryNotchForHybrid &&
+                (hasSimultaneousUltrasonicRebound || hasTimeSplicedUltrasonicRebound) &&
+                !isImagingDetected &&
+                !isFlatBroadbandMirror;
+
             if (isDitherShelfDetected && bitsPerSample >= 24 && p22_5k < DitherMaxUpperBandDbFS)
             {
                 verdict = AuthenticityVerdict.Dithered16BitUpscale;
@@ -486,6 +514,12 @@ public static class NyquistSpectrumAnalyzer
                 detectedCutoffHz = CdNyquistHz;
                 explanation = $"Perlu cek manual: terdeteksi pola cermin pencitraan resampler (r={imagingCorrelation:F2}, atenuasi {imagingAttenuationDb:F1} dB, level pita atas {imagingUpperMeanDb:F1} dBFS) di sekitar 22.05 kHz. " +
                               "Energi ultrasonik berpotensi berasal dari artefak resampler non-ideal dari sumber 44.1 kHz.";
+            }
+            else if (isTrueHybridMaster)
+            {
+                verdict = AuthenticityVerdict.HybridMaster;
+                detectedCutoffHz = (uint)Math.Min(nyquistLimitHz, Math.Max(44_000u, upperEnvelopeReachHz));
+                explanation = $"Spektrum konsisten dengan produksi studio campuran (hybrid): terdapat penurunan nyata di batas CD 20–22.5 kHz ({p20k - p22_5k:F1} dB) disertai energi ultrasonik aktif di atas 35 kHz. {AacOpusCaveatId}";
             }
             else if (isCdBrickwallHiRes)
             {
@@ -522,14 +556,6 @@ public static class NyquistSpectrumAnalyzer
                 verdict = AuthenticityVerdict.Inconclusive;
                 detectedCutoffHz = detectedKneeHz;
                 explanation = $"Perlu cek manual: energi turun di bawah ambang pada ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB). Belum cukup bukti sebagai potongan MP3 maupun master penuh.";
-            }
-            else if ((p22_5k < HybridP22_5kMaxDbFS || slopeCdTransition <= CdBrickwallMaxSlopeDbPerOct) &&
-                     (p35k > HybridP35kMinDbFS || p40k > HybridP40kMinDbFS) &&
-                     noiseStdDevDb >= HybridMinNoiseStdDevDb)
-            {
-                verdict = AuthenticityVerdict.HybridMaster;
-                detectedCutoffHz = (uint)Math.Min(nyquistLimitHz, 44_000);
-                explanation = $"Spektrum konsisten dengan produksi studio campuran (hybrid): memadukan elemen berbatas 44.1 kHz dengan energi ultrasonik aktif di pita 35–40 kHz. {AacOpusCaveatId}";
             }
             else if (detectedKneeHz > CdKneeMinHz && hasSmoothHiResContinuation && p24k < HiResP24kActiveDbFS && p35k <= HiResP35kAcousticMaxDbFS)
             {
