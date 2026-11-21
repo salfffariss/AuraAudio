@@ -812,7 +812,7 @@ public class SyntheticCorpusTests : IDisposable
         _output.WriteLine("\n=========================================================================================================================");
         _output.WriteLine("                                    2D CONTINGENCY CONFUSION MATRIX (Rows: Expected, Cols: Actual)                      ");
         _output.WriteLine("=========================================================================================================================");
-        string[] shortNames = { "VerLoss", "AcoRoll", "HybMast", "Zero24", "UpsCd", "Dith16", "SuspLoss", "StdLoss", "Inconc" };
+        string[] shortNames = { "VerLoss", "AcoRoll", "HybMast", "Zero24", "UpsCd", "UpsHR", "Dith16", "SuspLoss", "StdLoss", "Inconc" };
 
         string header = string.Format("{0,-12} | ", "Exp \\ Act");
         for (int j = 0; j < n; j++) header += string.Format("{0,8} ", shortNames[j]);

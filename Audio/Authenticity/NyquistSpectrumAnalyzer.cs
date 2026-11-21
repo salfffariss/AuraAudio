@@ -148,15 +148,17 @@ public static class NyquistSpectrumAnalyzer
     // Hi-Res-to-Hi-Res upsampling across standard Nyquist boundaries (FORENSIC #6):
     // Scans lower standard sample rates <= 85% of container rate (48, 88.2, 96, 176.4, 192 kHz) so candidates
     // never overlap the container's own anti-aliasing transition (e.g., 88.2k inside 96k).
+    // Uses container-aware dead-silence stopband ceiling (<= -152 dBFS on >= 24-bit, <= -132 dBFS flat on 16-bit)
+    // so genuine 24-bit acoustic recordings with soft analog noise floors (~ -140 dBFS) never false-trigger.
     // DEV distributions: fake Hi-Res upsamples drop 42.2..79.0 dB into -160 dBFS vs genuine Hi-Res max drop +0.3 dB.
     private static readonly uint[] StandardHiResSourceRatesHz = [48_000, 88_200, 96_000, 176_400, 192_000];
     private const double HiResUpsampleMaxSourceToContainerRatio = 0.85;
     private const double HiResUpsampleMinPassbandDbFS = -130.0;
     private const double HiResUpsampleMinDropDb = 25.0;
     private const double HiResUpsampleMaxSlopeDbPerOct = -60.0;
-    private const double HiResUpsampleMaxUpperBandDbFS = -125.0;
     private const double HiResUpsampleMinUpperDropDb = 28.0;
-    private const double HiResUpsampleMaxEnvUpperBandDbFS = -120.0;
+    private const double HiResUpsampleMaxEnvUpper24BitDbFS = -145.0;
+    private const double HiResUpsampleMaxEnvUpper16BitDbFS = -128.0;
 
     private const string AacOpusCaveatId =
         "Catatan: berkas lossy bitrate tinggi tanpa lowpass kaku (AAC/Opus, MP3 V0, Vorbis q5) tidak dapat dibedakan melalui analisis spektrum saja.";
@@ -576,7 +578,7 @@ public static class NyquistSpectrumAnalyzer
                     : "Konsisten dengan upsampling dari master CD 44.1 kHz";
                 explanation = $"Wadah berlabel {sourceSpec.FormattedBadge}, namun energi spektral turun tajam di sekitar batas CD 22.05 kHz (kemiringan {slopeCdTransition:F1} dB/oktaf, tebing {cliffDropDb:F1} dB @ {cliffHz / 1000.0:F2} kHz, drop knee {dropAcrossKnee:F1} dB, level @ 22.05k: {p22k:F1} dBFS). {hedge}.";
             }
-            else if (DetectHiResUpsampleFromLowerRate(avgPower, envPower, binResolution, sampleRate, nyquistLimitHz, upperEnvelopeReachHz) is { Detected: true } hiResUp)
+            else if (DetectHiResUpsampleFromLowerRate(avgPower, envPower, binResolution, sampleRate, nyquistLimitHz, upperEnvelopeReachHz, bitsPerSample) is { Detected: true } hiResUp)
             {
                 verdict = AuthenticityVerdict.UpscaledHiRes;
                 detectedCutoffHz = hiResUp.SourceNyquistHz;
@@ -1820,12 +1822,17 @@ public static class NyquistSpectrumAnalyzer
             double binResolution,
             uint sampleRate,
             uint nyquistLimitHz,
-            uint upperEnvelopeReachHz)
+            uint upperEnvelopeReachHz,
+            int bitsPerSample)
     {
         if (sampleRate < 88_200 || binResolution <= 0.0 || avgPower.Length == 0 || envPower.Length == 0)
         {
             return (false, 0, 0, 0.0, 0.0, -160.0);
         }
+
+        bool is16BitContainer = bitsPerSample <= 16;
+        double upperCeilingDb = is16BitContainer ? DeadSilenceFloor16BitDbFS : DeadSilenceFloorDbFS;
+        double upperEnvCeilingDb = is16BitContainer ? HiResUpsampleMaxEnvUpper16BitDbFS : HiResUpsampleMaxEnvUpper24BitDbFS;
 
         bool found = false;
         uint bestSrcSr = 0;
@@ -1879,13 +1886,22 @@ public static class NyquistSpectrumAnalyzer
             }
 
             double upperAllDb = GetBandPowerDb(0.5 * (upperStartHz + maxValidUpperHz), 0.5 * (maxValidUpperHz - upperStartHz), avgPower, binResolution);
-            if (upperAllDb > HiResUpsampleMaxUpperBandDbFS || (beforeDb - upperAllDb) < HiResUpsampleMinUpperDropDb)
+            if (upperAllDb > upperCeilingDb || (beforeDb - upperAllDb) < HiResUpsampleMinUpperDropDb)
             {
                 continue;
             }
 
+            if (is16BitContainer)
+            {
+                double upperStdDevDb = ComputeBandStdDevDb(upperStartHz, maxValidUpperHz, avgPower, binResolution);
+                if (upperStdDevDb > DeadSilence16BitMaxStdDevDb)
+                {
+                    continue;
+                }
+            }
+
             double upperEnvDb = GetBandPowerDb(0.5 * (upperStartHz + maxValidUpperHz), 0.5 * (maxValidUpperHz - upperStartHz), envPower, binResolution);
-            if (upperEnvDb > HiResUpsampleMaxEnvUpperBandDbFS)
+            if (upperEnvDb > upperEnvCeilingDb)
             {
                 continue;
             }
