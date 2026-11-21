@@ -1616,10 +1616,12 @@ public class MainViewModel : ViewModelBase, IDisposable
             }
         });
 
-        AnalyzeTrackCommand = new RelayCommand(async () =>
-        {
-            await Inspector.AnalyzeCurrentTrackAsync();
-        });
+        AnalyzeTrackCommand = new RelayCommand(
+            async () =>
+            {
+                await Inspector.AnalyzeCurrentTrackAsync();
+            },
+            () => !Inspector.IsAnalyzing);
 
         OpenInspectFileDialogCommand = new RelayCommand(async () =>
         {
@@ -2995,6 +2997,10 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
 
         OnPropertyChanged(e.PropertyName);
+        if (e.PropertyName == nameof(InspectorViewModel.IsAnalyzing))
+        {
+            (AnalyzeTrackCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
     }
 
     public Task AnalyzeTrackAsync(Track? track)

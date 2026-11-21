@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using AuraAudio.Core.Models;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -7,6 +11,117 @@ using NAudio.Wave;
 #pragma warning disable CS0618 // WasapiOut is used for robust exclusive mode stream control
 
 namespace AuraAudio.Audio;
+
+/// <summary>
+/// Process-wide emergency audio silencer invoked on unhandled/fatal exceptions and process exit
+/// so a crashing UI never leaves a WASAPI DMA ring buffer looping audible audio.
+/// </summary>
+public static class EmergencyAudioSilencer
+{
+    private static readonly ConcurrentDictionary<long, Action<int>> _targets = new();
+    private static long _nextId;
+
+    public static long Register(Action<int> silenceAction)
+    {
+        ArgumentNullException.ThrowIfNull(silenceAction);
+        long id = Interlocked.Increment(ref _nextId);
+        _targets[id] = silenceAction;
+        return id;
+    }
+
+    public static void Unregister(long id)
+    {
+        if (id != 0)
+        {
+            _targets.TryRemove(id, out _);
+        }
+    }
+
+    public static void SilenceAllActive(int timeoutMs = 150)
+    {
+        int clampedTimeout = Math.Clamp(timeoutMs, 20, 500);
+        foreach (var kv in _targets.ToArray())
+        {
+            try
+            {
+                kv.Value(clampedTimeout);
+            }
+            catch
+            {
+                // Best-effort during crash teardown
+            }
+        }
+    }
+}
+
+/// <summary>
+/// Windows MMCSS ("Pro Audio") and thread-priority helper for the WASAPI render thread.
+/// NAudio's legacy <see cref="WasapiOut"/> spawns its render thread at <see cref="ThreadPriority.Normal"/>
+/// with no MMCSS registration; applying Pro Audio scheduling on the render thread prevents Windows
+/// scheduler preemptions from starving small exclusive/shared buffers.
+/// </summary>
+internal static class AudioThreadPriorityNative
+{
+    private const int AvrtPriorityCritical = 2;
+
+    [DllImport("avrt.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr AvSetMmThreadCharacteristicsW(string taskName, ref uint taskIndex);
+
+    [DllImport("avrt.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AvSetMmThreadPriority(IntPtr avrtHandle, int priority);
+
+    [DllImport("avrt.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AvRevertMmThreadCharacteristics(IntPtr avrtHandle);
+
+    public static IntPtr TryBoostCurrentRenderThread(out bool mmcssRegistered)
+    {
+        mmcssRegistered = false;
+        try
+        {
+            if (Thread.CurrentThread.Priority < ThreadPriority.Highest)
+            {
+                Thread.CurrentThread.Priority = ThreadPriority.Highest;
+            }
+        }
+        catch
+        {
+            // Ignore if OS policy forbids thread priority elevation
+        }
+
+        try
+        {
+            uint taskIndex = 0;
+            IntPtr handle = AvSetMmThreadCharacteristicsW("Pro Audio", ref taskIndex);
+            if (handle != IntPtr.Zero)
+            {
+                mmcssRegistered = true;
+                AvSetMmThreadPriority(handle, AvrtPriorityCritical);
+                return handle;
+            }
+        }
+        catch
+        {
+            // Best-effort fallback if avrt.dll is unavailable
+        }
+
+        return IntPtr.Zero;
+    }
+
+    public static void TryRevert(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero) return;
+        try
+        {
+            AvRevertMmThreadCharacteristics(handle);
+        }
+        catch
+        {
+            // Best-effort cleanup
+        }
+    }
+}
 
 /// <summary>
 /// Pembungkus stream audio yang menyalurkan keheningan digital (zero-byte PCM) saat pause / stop,
@@ -18,10 +133,17 @@ internal sealed class SilenceAwareWaveProvider : IWaveProvider
     private static readonly Guid IeeeFloatSubFormat = new("00000003-0000-0010-8000-00aa00389b71");
 
     private readonly IWaveProvider _source;
+    private readonly double _expectedPeriodMs;
     public WaveFormat WaveFormat => _source.WaveFormat;
     public volatile bool IsPaused;
+    private volatile bool _isStopping;
     private float _targetVolume = 1.0f;
     private double _smoothedGain = 1.0;
+
+    // Render-thread MMCSS registration state (only ever accessed/reverted by the active render thread)
+    private int _renderThreadId;
+    private IntPtr _mmcssHandle;
+    private bool _mmcssRegistered;
 
     public float Volume
     {
@@ -29,21 +151,60 @@ internal sealed class SilenceAwareWaveProvider : IWaveProvider
         set => Volatile.Write(ref _targetVolume, Math.Clamp(value, 0f, 1f));
     }
 
-    public SilenceAwareWaveProvider(IWaveProvider source, float initialVolume = 1.0f)
+    public SilenceAwareWaveProvider(IWaveProvider source, float initialVolume = 1.0f, double expectedPeriodMs = 20.0)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
+        _expectedPeriodMs = expectedPeriodMs;
         float clamped = Math.Clamp(initialVolume, 0f, 1f);
         _targetVolume = clamped;
         _smoothedGain = clamped >= 0.9999f ? 1.0 : (clamped <= 0.0001f ? 0.0 : clamped * clamped);
+    }
+
+    public void BeginStop()
+    {
+        IsPaused = true;
+        _isStopping = true;
+    }
+
+    private void EnsureRenderThreadPriority()
+    {
+        int tid = Environment.CurrentManagedThreadId;
+        if (_isStopping)
+        {
+            if (_renderThreadId == tid && _mmcssHandle != IntPtr.Zero)
+            {
+                AudioThreadPriorityNative.TryRevert(_mmcssHandle);
+                _mmcssHandle = IntPtr.Zero;
+                _mmcssRegistered = false;
+            }
+            return;
+        }
+
+        if (_renderThreadId != tid)
+        {
+            _renderThreadId = tid;
+            _mmcssHandle = AudioThreadPriorityNative.TryBoostCurrentRenderThread(out _mmcssRegistered);
+            if (AudioRenderDiagnostics.IsEnabled)
+            {
+                AudioRenderDiagnostics.RecordRenderThreadState(Thread.CurrentThread.Priority, _mmcssRegistered);
+            }
+        }
     }
 
     public int Read(Span<byte> destination)
     {
         if (destination.IsEmpty) return 0;
 
+        long diagStart = AudioRenderDiagnostics.IsEnabled ? Stopwatch.GetTimestamp() : 0;
+        EnsureRenderThreadPriority();
+
         if (IsPaused)
         {
             destination.Clear();
+            if (diagStart > 0)
+            {
+                AudioRenderDiagnostics.RecordRenderCallback(diagStart, Stopwatch.GetTimestamp(), _expectedPeriodMs);
+            }
             return destination.Length;
         }
 
@@ -65,6 +226,11 @@ internal sealed class SilenceAwareWaveProvider : IWaveProvider
             ApplyVolumeGain(destination.Slice(0, totalRead));
         }
 
+        if (diagStart > 0)
+        {
+            AudioRenderDiagnostics.RecordRenderCallback(diagStart, Stopwatch.GetTimestamp(), _expectedPeriodMs);
+        }
+
         return totalRead;
     }
 
@@ -78,9 +244,9 @@ internal sealed class SilenceAwareWaveProvider : IWaveProvider
         float vol = Volatile.Read(ref _targetVolume);
         double targetGain = vol >= 0.9999f ? 1.0 : (vol <= 0.0001f ? 0.0 : (double)vol * vol);
 
-        // Protect DoP (DSD over PCM) marker framing: never rescale DoP bits; only allow full unity or digital silence
+        // Lock-free DoP check (never acquires GaplessStreamQueue._lock on the render thread)
         bool isDoP = _source is Dsd.DopStreamProvider
-            || (_source is GaplessStreamQueue q && q.CurrentStream is Dsd.DopStreamProvider);
+            || (_source is GaplessStreamQueue q && q.IsCurrentStreamDoP);
         if (isDoP)
         {
             if (targetGain <= 0.00001)
@@ -212,6 +378,12 @@ public class WasapiExclusivePlayer : IAudioOutputEngine
     private bool _isExclusiveActive;
     private bool _isDisposed;
     private float _volume = 1.0f;
+    private long _emergencyRegistrationId;
+
+    public WasapiExclusivePlayer()
+    {
+        _emergencyRegistrationId = EmergencyAudioSilencer.Register(EmergencySilenceAndRelease);
+    }
 
     public AudioDevice? CurrentDevice => _currentDevice;
     public WaveFormat? CurrentFormat => _currentFormat;
@@ -246,7 +418,8 @@ public class WasapiExclusivePlayer : IAudioOutputEngine
 
         _currentDevice = device;
         _currentFormat = waveProvider.WaveFormat;
-        _silenceProvider = new SilenceAwareWaveProvider(waveProvider, _volume);
+        double expectedPeriodMs = driverType == AudioDriverType.WASAPI_Shared ? 10.0 : Math.Clamp(latencyMs, 20, 200) / 2.0;
+        _silenceProvider = new SilenceAwareWaveProvider(waveProvider, _volume, expectedPeriodMs);
 
         // Buka MMDevice endpoint yang sesuai dari Windows ID
         using var enumerator = new MMDeviceEnumerator();
@@ -277,7 +450,7 @@ public class WasapiExclusivePlayer : IAudioOutputEngine
         {
             System.Diagnostics.Debug.WriteLine($"[WASAPI Exclusive Notice] Driver soundcard menolak mode Eksklusif ({ex.Message}). Beralih mulus ke mode Shared.");
             DisposeWasapi();
-            _silenceProvider = new SilenceAwareWaveProvider(waveProvider, _volume);
+            _silenceProvider = new SilenceAwareWaveProvider(waveProvider, _volume, expectedPeriodMs: 10.0);
             InitializeSharedMode(_silenceProvider, latencyMs);
         }
 
@@ -381,7 +554,7 @@ public class WasapiExclusivePlayer : IAudioOutputEngine
         {
             if (_silenceProvider != null)
             {
-                _silenceProvider.IsPaused = true;
+                _silenceProvider.BeginStop();
             }
 
             // Alirkan keheningan digital selama 80ms (minimal 1-2 siklus buffer WASAPI)
@@ -400,6 +573,41 @@ public class WasapiExclusivePlayer : IAudioOutputEngine
 
             DisposeWasapi();
             UpdateStatus(PlaybackStatus.Stopped);
+        }
+    }
+
+    /// <summary>
+    /// Best-effort bounded silence and release invoked on unhandled/fatal crash before process teardown
+    /// so an active WASAPI DMA ring cannot loop audible PCM while the process exits.
+    /// </summary>
+    public void EmergencySilenceAndRelease(int timeoutMs = 150)
+    {
+        var silence = _silenceProvider;
+        if (silence != null)
+        {
+            silence.BeginStop();
+        }
+
+        var wasapi = _wasapiOut;
+        if (wasapi == null)
+        {
+            return;
+        }
+
+        int flushMs = Math.Min(40, Math.Max(10, timeoutMs / 3));
+        try
+        {
+            var releaseTask = Task.Run(() =>
+            {
+                try { Thread.Sleep(flushMs); } catch { }
+                try { wasapi.Stop(); } catch { }
+                try { DisposeWasapi(); } catch { }
+            });
+            releaseTask.Wait(Math.Clamp(timeoutMs, 20, 500));
+        }
+        catch
+        {
+            // Never throw from a fatal crash handler
         }
     }
 
@@ -448,6 +656,7 @@ public class WasapiExclusivePlayer : IAudioOutputEngine
         if (_isDisposed) return;
         _isDisposed = true;
 
+        EmergencyAudioSilencer.Unregister(Interlocked.Exchange(ref _emergencyRegistrationId, 0));
         Stop();
         DisposeWasapi();
         GC.SuppressFinalize(this);

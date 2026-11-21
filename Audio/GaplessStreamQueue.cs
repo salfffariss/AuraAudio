@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Threading;
 using AuraAudio.Core.Models;
 using NAudio.Wave;
 
@@ -11,9 +13,9 @@ public record TrackTransitionEventArgs(IAudioStream PreviousTrack, IAudioStream 
 
 /// <summary>
 /// Antrean Aliran Audio Gapless (Gapless Stream Queue) Kelas Audiophile.
-/// Menggabungkan dua atau lebih berkas audio secara presisi pada level sampel (Sample-Exact Stitching)
-/// tanpa jeda sunyi (silence gap), tanpa reset buffer hardware DAC, dan dilengkapi
-/// perlindungan Anti-Pop Micro-Fade pada saat pergantian sample rate.
+/// Menyediakan pembacaan posisi bebas kunci (lock-free <see cref="CurrentTime"/> / <see cref="TotalTime"/>),
+/// mikro-fade Anti-Pop bebas alokasi heap (in-place <see cref="Span{T}"/>), dan seek non-blocking
+/// agar thread render audio tidak pernah terhambat menunggu disk seek.
 /// </summary>
 public class GaplessStreamQueue : IAudioStream
 {
@@ -22,6 +24,13 @@ public class GaplessStreamQueue : IAudioStream
     private IAudioStream? _nextStream;
     private bool _isFirstBuffer = true;
     private bool _isDisposed;
+
+    // Lock-free snapshots read by the 50 ms UI timer and render-thread volume check without contending on _lock
+    private long _cachedPositionBytes;
+    private long _cachedLengthBytes;
+    private int _cachedAvgBytesPerSec;
+    private volatile bool _isCurrentDoP;
+    private int _isSeeking;
 
     public IAudioStream CurrentStream
     {
@@ -33,40 +42,94 @@ public class GaplessStreamQueue : IAudioStream
         get { lock (_lock) return _nextStream; }
     }
 
-    // Delegasi properti IAudioStream ke lagu yang sedang aktif diputar
+    internal bool IsCurrentStreamDoP => _isCurrentDoP;
+
     public string FilePath => CurrentStream.FilePath;
     public AudioStreamSpec Spec => CurrentStream.Spec;
     public WaveFormat WaveFormat => CurrentStream.WaveFormat;
-    public TimeSpan TotalTime => CurrentStream.TotalTime;
+
+    public TimeSpan TotalTime
+    {
+        get
+        {
+            long len = Volatile.Read(ref _cachedLengthBytes);
+            int bps = Math.Max(1, Volatile.Read(ref _cachedAvgBytesPerSec));
+            return TimeSpan.FromSeconds((double)len / bps);
+        }
+    }
+
     public TimeSpan CurrentTime
     {
-        get => CurrentStream.CurrentTime;
-        set => CurrentStream.CurrentTime = value;
+        get
+        {
+            long pos = Volatile.Read(ref _cachedPositionBytes);
+            int bps = Math.Max(1, Volatile.Read(ref _cachedAvgBytesPerSec));
+            return TimeSpan.FromSeconds((double)pos / bps);
+        }
+        set
+        {
+            Interlocked.Increment(ref _isSeeking);
+            try
+            {
+                lock (_lock)
+                {
+                    if (_isDisposed) return;
+                    _currentStream.CurrentTime = value;
+                    _isFirstBuffer = true;
+                    RefreshStreamMetadataUnlocked(_currentStream);
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _isSeeking);
+            }
+        }
     }
+
     public long Position
     {
-        get => CurrentStream.Position;
-        set => CurrentStream.Position = value;
+        get => Volatile.Read(ref _cachedPositionBytes);
+        set
+        {
+            Interlocked.Increment(ref _isSeeking);
+            try
+            {
+                lock (_lock)
+                {
+                    if (_isDisposed) return;
+                    _currentStream.Position = value;
+                    _isFirstBuffer = true;
+                    RefreshStreamMetadataUnlocked(_currentStream);
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _isSeeking);
+            }
+        }
     }
-    public long Length => CurrentStream.Length;
 
-    /// <summary>Ditembakkan saat lagu berpindah secara mulus (Gapless Seamless Transition)</summary>
+    public long Length => Volatile.Read(ref _cachedLengthBytes);
+
     public event EventHandler<TrackTransitionEventArgs>? TrackTransitioned;
-
-    /// <summary>Ditembakkan saat lagu berikutnya memerlukan negosiasi ulang sample rate hardware</summary>
     public event EventHandler<IAudioStream>? FormatChangeRequired;
-
-    /// <summary>Ditembakkan saat seluruh antrean lagu telah selesai diputar</summary>
     public event EventHandler? QueueEnded;
 
     public GaplessStreamQueue(IAudioStream initialStream)
     {
         _currentStream = initialStream ?? throw new ArgumentNullException(nameof(initialStream));
+        RefreshStreamMetadataUnlocked(_currentStream);
     }
 
-    /// <summary>
-    /// Memasang lagu berikutnya ke dalam memori untuk siap disambung secara gapless.
-    /// </summary>
+    private void RefreshStreamMetadataUnlocked(IAudioStream stream)
+    {
+        int avgBps = Math.Max(1, stream.WaveFormat.AverageBytesPerSecond);
+        Volatile.Write(ref _cachedAvgBytesPerSec, avgBps);
+        Volatile.Write(ref _cachedLengthBytes, Math.Max(0, stream.Length));
+        Volatile.Write(ref _cachedPositionBytes, Math.Max(0, stream.Position));
+        _isCurrentDoP = stream is Dsd.DopStreamProvider;
+    }
+
     public void EnqueueNext(IAudioStream nextStream)
     {
         ArgumentNullException.ThrowIfNull(nextStream);
@@ -77,9 +140,6 @@ public class GaplessStreamQueue : IAudioStream
         }
     }
 
-    /// <summary>
-    /// Menghapus antrean lagu berikutnya jika dibatalkan oleh pengguna.
-    /// </summary>
     public void ClearNext()
     {
         lock (_lock)
@@ -89,12 +149,6 @@ public class GaplessStreamQueue : IAudioStream
         }
     }
 
-    /// <summary>
-    /// Membaca sampel audio dari antrean dengan penyambungan gapless otomatis di batas lagu.
-    /// </summary>
-    /// <summary>
-    /// Membaca sampel audio dari antrean dengan penyambungan gapless otomatis di batas lagu.
-    /// </summary>
     public int Read(byte[] buffer, int offset, int count)
     {
         ArgumentNullException.ThrowIfNull(buffer);
@@ -102,22 +156,54 @@ public class GaplessStreamQueue : IAudioStream
             throw new ArgumentOutOfRangeException(nameof(count));
         if (count == 0) return 0;
 
-        return Read(new Span<byte>(buffer, offset, count));
+        return Read(buffer.AsSpan(offset, count));
     }
 
-    /// <summary>
-    /// Membaca sampel audio ke modern Span<byte> dengan penyambungan gapless.
-    /// Mengumpulkan seluruh frame audio secara kontinu dan hanya mentrigger EOF saat stream benar-benar habis (read == 0).
-    /// Notifikasi pergantian trek atau akhir antrean dikirim ke ThreadPool agar thread audio WASAPI tidak pernah deadlock.
-    /// </summary>
     public int Read(Span<byte> destination)
     {
         if (destination.IsEmpty) return 0;
 
-        int totalRead = 0;
-
-        lock (_lock)
+        // While an explicit seek is scanning/decoding on another thread, emit clean digital silence
+        // immediately instead of stalling the audio render thread and starving the hardware DMA ring.
+        if (Volatile.Read(ref _isSeeking) > 0)
         {
+            destination.Clear();
+            return destination.Length;
+        }
+
+        bool lockTaken = false;
+        long waitStart = AudioRenderDiagnostics.IsEnabled ? Stopwatch.GetTimestamp() : 0;
+        try
+        {
+            if (Volatile.Read(ref _isSeeking) > 0)
+            {
+                destination.Clear();
+                return destination.Length;
+            }
+
+            Monitor.TryEnter(_lock, ref lockTaken);
+            if (!lockTaken)
+            {
+                if (Volatile.Read(ref _isSeeking) > 0)
+                {
+                    destination.Clear();
+                    return destination.Length;
+                }
+
+                Monitor.Enter(_lock, ref lockTaken);
+                if (waitStart > 0)
+                {
+                    AudioRenderDiagnostics.RecordLockWait(Stopwatch.GetTimestamp() - waitStart);
+                }
+            }
+
+            if (_isDisposed)
+            {
+                destination.Clear();
+                return 0;
+            }
+
+            int totalRead = 0;
             while (totalRead < destination.Length)
             {
                 int needed = destination.Length - totalRead;
@@ -127,10 +213,7 @@ public class GaplessStreamQueue : IAudioStream
                 {
                     if (_isFirstBuffer)
                     {
-                        byte[] temp = new byte[read];
-                        destination.Slice(totalRead, read).CopyTo(temp);
-                        AntiPopFader.ApplyFadeIn(temp, 0, read, _currentStream.WaveFormat);
-                        temp.AsSpan().CopyTo(destination.Slice(totalRead, read));
+                        AntiPopFader.ApplyFadeIn(destination.Slice(totalRead, read), _currentStream.WaveFormat);
                         _isFirstBuffer = false;
                     }
 
@@ -138,7 +221,6 @@ public class GaplessStreamQueue : IAudioStream
                 }
                 else
                 {
-                    // read <= 0 menunjukkan akhir sebenarnya (True EOF) dari trek aktif
                     if (_nextStream != null)
                     {
                         if (FormatMatches(_currentStream.WaveFormat, _nextStream.WaveFormat))
@@ -147,53 +229,52 @@ public class GaplessStreamQueue : IAudioStream
                             var next = _nextStream;
                             _currentStream = next;
                             _nextStream = null;
+                            RefreshStreamMetadataUnlocked(_currentStream);
 
-                            // Notifikasi pergantian trek secara asinkron agar tidak memblokir thread audio
-                            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                            ThreadPool.QueueUserWorkItem(_ =>
                             {
                                 TrackTransitioned?.Invoke(this, new TrackTransitionEventArgs(prevTrack, next));
                                 prevTrack.Dispose();
                             });
 
-                            // Lanjutkan membaca dari trek baru untuk mengisi sisa buffer
                             continue;
                         }
                         else
                         {
-                            // Format sample rate atau bit depth berbeda: lakukan fade-out halus
                             if (totalRead > 0)
                             {
-                                byte[] temp = new byte[totalRead];
-                                destination.Slice(0, totalRead).CopyTo(temp);
-                                AntiPopFader.ApplyFadeOut(temp, 0, totalRead, _currentStream.WaveFormat);
-                                temp.AsSpan().CopyTo(destination.Slice(0, totalRead));
+                                AntiPopFader.ApplyFadeOut(destination.Slice(0, totalRead), _currentStream.WaveFormat);
                             }
 
                             var next = _nextStream;
                             _nextStream = null;
-                            System.Threading.ThreadPool.QueueUserWorkItem(_ => FormatChangeRequired?.Invoke(this, next));
+                            ThreadPool.QueueUserWorkItem(_ => FormatChangeRequired?.Invoke(this, next));
                             break;
                         }
                     }
                     else
                     {
-                        // Akhir dari antrean pemutaran
                         if (totalRead > 0)
                         {
-                            byte[] temp = new byte[totalRead];
-                            destination.Slice(0, totalRead).CopyTo(temp);
-                            AntiPopFader.ApplyFadeOut(temp, 0, totalRead, _currentStream.WaveFormat);
-                            temp.AsSpan().CopyTo(destination.Slice(0, totalRead));
+                            AntiPopFader.ApplyFadeOut(destination.Slice(0, totalRead), _currentStream.WaveFormat);
                         }
 
-                        System.Threading.ThreadPool.QueueUserWorkItem(_ => QueueEnded?.Invoke(this, EventArgs.Empty));
+                        ThreadPool.QueueUserWorkItem(_ => QueueEnded?.Invoke(this, EventArgs.Empty));
                         break;
                     }
                 }
             }
-        }
 
-        return totalRead;
+            Volatile.Write(ref _cachedPositionBytes, Math.Max(0, _currentStream.Position));
+            return totalRead;
+        }
+        finally
+        {
+            if (lockTaken)
+            {
+                Monitor.Exit(_lock);
+            }
+        }
     }
 
     private static bool FormatMatches(WaveFormat a, WaveFormat b)

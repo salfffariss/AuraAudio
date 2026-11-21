@@ -25,11 +25,17 @@ public partial class App : Application
     {
         DispatcherUnhandledException += (s, e) =>
         {
-            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "aura_crash.log"), e.Exception.ToString());
+            AuraAudio.Audio.EmergencyAudioSilencer.SilenceAllActive(timeoutMs: 150);
+            try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "aura_crash.log"), e.Exception.ToString()); } catch { }
         };
         AppDomain.CurrentDomain.UnhandledException += (s, e) =>
         {
-            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "aura_crash.log"), e.ExceptionObject?.ToString() ?? "Unknown exception");
+            AuraAudio.Audio.EmergencyAudioSilencer.SilenceAllActive(timeoutMs: 150);
+            try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "aura_crash.log"), e.ExceptionObject?.ToString() ?? "Unknown exception"); } catch { }
+        };
+        AppDomain.CurrentDomain.ProcessExit += (s, e) =>
+        {
+            AuraAudio.Audio.EmergencyAudioSilencer.SilenceAllActive(timeoutMs: 150);
         };
     }
 

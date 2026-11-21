@@ -139,7 +139,6 @@ public class AudiophilePlaybackController : IPlaybackTrackSource, IDisposable
     public event EventHandler<PlaybackStateSnapshot>? StateChanged;
     public event EventHandler<Track>? TrackChanged;
     public event EventHandler<Track?>? CurrentTrackChanged;
-    public event EventHandler<AudioIntegrityReport>? IntegrityReportUpdated;
     public event EventHandler<SignalPathSummary>? SignalPathUpdated;
     public event EventHandler<PlaybackErrorEventArgs>? PlaybackFailed;
 
@@ -288,13 +287,16 @@ public class AudiophilePlaybackController : IPlaybackTrackSource, IDisposable
     /// </summary>
     public void Seek(TimeSpan targetTime)
     {
+        GaplessStreamQueue? queue;
         lock (_lock)
         {
-            if (_activeQueue != null)
-            {
-                _activeQueue.CurrentTime = targetTime;
-                PublishSnapshot();
-            }
+            queue = _activeQueue;
+        }
+
+        if (queue != null)
+        {
+            queue.CurrentTime = targetTime;
+            PublishSnapshot();
         }
     }
 
@@ -577,9 +579,6 @@ public class AudiophilePlaybackController : IPlaybackTrackSource, IDisposable
             CurrentTrackChanged?.Invoke(this, track);
             SignalPathUpdated?.Invoke(this, _currentSignalPath);
             PublishSnapshot();
-
-            // 7. Luncurkan analisis keaslian spektrum Nyquist FFT secara asinkron di latar belakang
-            _ = RunBackgroundIntegrityAnalysisAsync(track);
         }
         catch (Exception ex)
         {
@@ -612,33 +611,6 @@ public class AudiophilePlaybackController : IPlaybackTrackSource, IDisposable
         }
     }
 
-    private async Task RunBackgroundIntegrityAnalysisAsync(Track track)
-    {
-        try
-        {
-            var (hwSpec, hasActivePath, isExclusive, driverType) = GetHardwareAuditContext(track.FilePath);
-            var report = await NyquistSpectrumAnalyzer.AnalyzeAsync(
-                track.FilePath,
-                hwSpec,
-                hasActivePath,
-                isExclusive,
-                driverType);
-            lock (_lock)
-            {
-                if (_currentTrack?.FilePath == track.FilePath)
-                {
-                    _currentIntegrityReport = report;
-                }
-            }
-            IntegrityReportUpdated?.Invoke(this, report);
-            PublishSnapshot();
-        }
-        catch
-        {
-            // Analisis latar belakang gagal tanpa mengganggu pemutaran
-        }
-    }
-
     private void OnGaplessTrackTransitioned(object? sender, TrackTransitionEventArgs e)
     {
         var nextTrack = _queueManager.AdvanceNext();
@@ -664,7 +636,6 @@ public class AudiophilePlaybackController : IPlaybackTrackSource, IDisposable
         if (_currentTrack != null)
         {
             TrackChanged?.Invoke(this, _currentTrack);
-            _ = RunBackgroundIntegrityAnalysisAsync(_currentTrack);
         }
 
         SignalPathUpdated?.Invoke(this, _currentSignalPath!);
