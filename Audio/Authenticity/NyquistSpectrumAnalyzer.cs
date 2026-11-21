@@ -120,6 +120,11 @@ public static class NyquistSpectrumAnalyzer
     private const double Tail48kMaxCliffDb = 16.0;
     private const double Cd44kInconclusiveDropDb = 25.0;
 
+    // Low sample-rate (< 44.1 kHz) Nyquist-relative thresholds (FORENSIC #4)
+    private const double LowSrFullBandMinNyquistRatio = 0.92;
+    private const double LowSrLossyMaxNyquistRatio = 0.85;
+    private const uint LowSrMinSampleRateForLossyFlagHz = 22_050;
+
     private const string AacOpusCaveatId =
         "Catatan: berkas AAC/Opus bitrate tinggi tanpa lowpass kaku tidak dapat dibedakan melalui analisis spektrum saja.";
 
@@ -367,10 +372,12 @@ public static class NyquistSpectrumAnalyzer
         }
 
         // 6. Pengukuran Metrik Forensik Presisi (seluruh level pita memakai rata-rata daya linear GetBandPowerDb)
-        double pRef = GetBandPowerDb(2_500, BandHalfWidthRefHz, avgPower, binResolution);
+        double pRef = sampleRate >= 16_000
+            ? GetBandPowerDb(2_500, BandHalfWidthRefHz, avgPower, binResolution)
+            : GetBandPowerDb(nyquistLimitHz * 0.35, nyquistLimitHz * 0.20, avgPower, binResolution);
         uint detectedKneeHz = DetectKneeCutoffHz(avgPower, binResolution, pRef, nyquistLimitHz, KneeDropBelowRefDb);
-        double kneeSteepness = ComputeKneeSteepness(avgPower, binResolution, detectedKneeHz);
-        double dropAcrossKnee = ComputeDropAcrossKnee(avgPower, binResolution, detectedKneeHz);
+        double kneeSteepness = ComputeKneeSteepness(avgPower, binResolution, detectedKneeHz, nyquistLimitHz);
+        double dropAcrossKnee = ComputeDropAcrossKnee(avgPower, binResolution, detectedKneeHz, nyquistLimitHz);
 
         var (imagingCorrelation, imagingAttenuationDb, imagingUpperMeanDb, isImagingDetected) = ComputeImagingCorrelation(avgPower, binResolution, sampleRate);
         var (cliffHz, cliffDropDb) = ComputeCliff(avgPower, binResolution, nyquistLimitHz);
@@ -417,11 +424,16 @@ public static class NyquistSpectrumAnalyzer
 
         // Ciri peluruhan alami instrumen akustik/piano tanpa patahan filter buatan (brickwall),
         // menolak berkas dengan tebing/kemiringan batas CD atau pita ultrasonik sunyi mutlak (-160 dBFS).
-        double lowTrebleSlope = ComputeSpectralSlope(2_000.0, 4_000.0, avgPower, binResolution);
+        double lowTrebleSlope = sampleRate >= 16_000
+            ? ComputeSpectralSlope(2_000.0, 4_000.0, avgPower, binResolution)
+            : ComputeSpectralSlope(nyquistLimitHz * 0.25, nyquistLimitHz * 0.50, avgPower, binResolution);
         uint effectiveReachHz = Math.Max(upperEnvelopeReachHz, detectedKneeHz);
+        uint minAcousticReachHz = sampleRate < 44_100
+            ? (uint)Math.Round(nyquistLimitHz * 0.55)
+            : AcousticMinEffectiveReachHz;
 
         bool isSmoothAcousticRollOff =
-            effectiveReachHz >= AcousticMinEffectiveReachHz &&
+            effectiveReachHz >= minAcousticReachHz &&
             dropAcrossKnee < AcousticMaxDropAcrossKneeDb &&
             midTrebleCliffDrop < AcousticMaxMidTrebleCliffDb &&
             kneeSteepness > AcousticMinKneeSteepnessDbPerOct &&
@@ -624,8 +636,53 @@ public static class NyquistSpectrumAnalyzer
                 explanation = $"Perlu cek manual: spektrum 48 kHz berada di zona transisi ambigu (kemiringan {slopeCdTransition:F1} dB/oktaf, p24k: {p24k:F1} dBFS).";
             }
         }
+        else if (sampleRate < 44_100) // Sample rate rendah (< 44.1 kHz): ambang relatif terhadap Nyquist
+        {
+            double srKhz = sampleRate / 1000.0;
+            uint lowSrFullBandMinHz = (uint)Math.Round(nyquistLimitHz * LowSrFullBandMinNyquistRatio);
+            uint lowSrLossyMaxHz = (uint)Math.Round(nyquistLimitHz * LowSrLossyMaxNyquistRatio);
+
+            bool isLowSrLossyBrickwall =
+                sampleRate >= LowSrMinSampleRateForLossyFlagHz &&
+                detectedKneeHz <= lowSrLossyMaxHz &&
+                kneeSteepness <= LossySteepnessThresholdDbPerOct &&
+                dropAcrossKnee >= LossyDropAcrossKneeMinDb;
+
+            if (isLowSrLossyBrickwall)
+            {
+                verdict = AuthenticityVerdict.SuspectedUpscaledLossy;
+                detectedCutoffHz = detectedKneeHz;
+                explanation = $"Terdeteksi pemotongan spektrum tajam pada berkas {srKhz:F1} kHz di ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB). " +
+                              "Kemungkinan hasil konversi dari lossy (MP3/AAC), atau sumber dengan bandwidth terbatas.";
+            }
+            else if (bitsPerSample >= 24 && isZeroPadded)
+            {
+                verdict = AuthenticityVerdict.ZeroPadded24Bit;
+                detectedCutoffHz = nyquistLimitHz;
+                explanation = $"Konsisten dengan wadah 24-bit zero-padding: berkas 24-bit / {srKhz:F1} kHz memiliki 8 bit terbawah bernilai nol (aktivitas {lsbPercentage:F1}%, entropi {lsbEntropy:F2}/8 bit), setara 16-bit.";
+            }
+            else if (detectedKneeHz >= lowSrFullBandMinHz)
+            {
+                verdict = AuthenticityVerdict.VerifiedLossless;
+                detectedCutoffHz = nyquistLimitHz;
+                explanation = $"Tidak ditemukan artefak pemotongan lossy pada berkas {srKhz:F1} kHz: energi spektral terukur aktif hingga batas Nyquist ~{nyquistLimitHz / 1000.0:F1} kHz. {AacOpusCaveatId}";
+            }
+            else if (isSmoothAcousticRollOff)
+            {
+                verdict = AuthenticityVerdict.AcousticNaturalRollOff;
+                detectedCutoffHz = nyquistLimitHz;
+                explanation = $"Tidak ditemukan artefak pemotongan filter buatan pada berkas {srKhz:F1} kHz: harmonik melandai halus secara alami (jangkauan puncak ~{effectiveReachHz / 1000.0:F1} kHz, kemiringan treble {trebleDecaySlope:F1} dB/oktaf). {AacOpusCaveatId}";
+            }
+            else
+            {
+                verdict = AuthenticityVerdict.Inconclusive;
+                detectedCutoffHz = detectedKneeHz;
+                explanation = $"Perlu cek manual: spektrum {srKhz:F1} kHz turun di bawah ambang pada ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB).";
+            }
+        }
         else // Standar 44.1 kHz (mendukung baik 16-bit maupun 24-bit / 44.1 kHz)
         {
+            double srKhz = sampleRate / 1000.0;
             bool relLossyPattern44k = (relP16k < RelP16kLossyThresholdDb) || ((relP20k < RelP20kLossyThresholdDb) && relP16k > -35.0);
             bool isPrimaryMp3Cutoff44k = ((detectedKneeHz <= LossyKneeMaxHz) || relLossyPattern44k) &&
                                          kneeSteepness <= LossySteepnessThresholdDbPerOct &&
@@ -637,20 +694,20 @@ public static class NyquistSpectrumAnalyzer
                 detectedCutoffHz = isPrimaryMp3Cutoff44k ? detectedKneeHz : deadZeroLossyCutoffHz;
                 double repSteep = isPrimaryMp3Cutoff44k ? kneeSteepness : deadZeroLossySteepness;
                 double repDrop = isPrimaryMp3Cutoff44k ? dropAcrossKnee : deadZeroLossyDropDb;
-                explanation = $"Terdeteksi pemotongan spektrum tajam pada berkas 44.1 kHz di ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {repSteep:F1} dB/oktaf, penurunan {repDrop:F1} dB). " +
+                explanation = $"Terdeteksi pemotongan spektrum tajam pada berkas {srKhz:F1} kHz di ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {repSteep:F1} dB/oktaf, penurunan {repDrop:F1} dB). " +
                               "Kemungkinan hasil konversi dari lossy (MP3/AAC), atau sumber dengan bandwidth terbatas.";
             }
             else if (bitsPerSample >= 24 && isZeroPadded)
             {
                 verdict = AuthenticityVerdict.ZeroPadded24Bit;
                 detectedCutoffHz = CdNyquistHz;
-                explanation = $"Konsisten dengan wadah 24-bit zero-padding: berkas 24-bit / 44.1 kHz memiliki 8 bit terbawah bernilai nol (aktivitas {lsbPercentage:F1}%, entropi {lsbEntropy:F2}/8 bit), setara 16-bit.";
+                explanation = $"Konsisten dengan wadah 24-bit zero-padding: berkas 24-bit / {srKhz:F1} kHz memiliki 8 bit terbawah bernilai nol (aktivitas {lsbPercentage:F1}%, entropi {lsbEntropy:F2}/8 bit), setara 16-bit.";
             }
             else if (bitsPerSample >= 24 && isDitherShelfDetected && p20k < DitherMaxUpperBandDbFS && p20kEnv < DitherMaxUpperBandDbFS)
             {
                 verdict = AuthenticityVerdict.Dithered16BitUpscale;
                 detectedCutoffHz = CdNyquistHz;
-                explanation = $"Wadah 24-bit / 44.1 kHz, namun pita 20–22 kHz menunjukkan lantai derau datar setara dither 16-bit ({noiseFloorDbFS:F1} dBFS, σ={noiseStdDevDb:F1} dB). Konsisten dengan ekspor dari master 16-bit.";
+                explanation = $"Wadah 24-bit / {srKhz:F1} kHz, namun pita 20–22 kHz menunjukkan lantai derau datar setara dither 16-bit ({noiseFloorDbFS:F1} dBFS, σ={noiseStdDevDb:F1} dB). Konsisten dengan ekspor dari master 16-bit.";
             }
             else if (detectedKneeHz <= CdKneeMinHz && isSmoothAcousticRollOff)
             {
@@ -662,7 +719,7 @@ public static class NyquistSpectrumAnalyzer
             {
                 verdict = AuthenticityVerdict.Inconclusive;
                 detectedCutoffHz = detectedKneeHz;
-                explanation = $"Perlu cek manual: spektrum 44.1 kHz turun di bawah ambang pada ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB).";
+                explanation = $"Perlu cek manual: spektrum {srKhz:F1} kHz turun di bawah ambang pada ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB).";
             }
             else if (dropAcrossKnee >= Cd44kInconclusiveDropDb && kneeSteepness <= LossySteepnessThresholdDbPerOct)
             {
@@ -1056,11 +1113,17 @@ public static class NyquistSpectrumAnalyzer
             startFreq = 22_050.0;
             endFreq = 23_900.0;
         }
-        else
+        else if (nyquistLimitHz >= 22_000)
         {
             // Format 44.1 kHz: evaluasi pita atas mendekati Nyquist
             startFreq = 20_000.0;
             endFreq = 22_050.0;
+        }
+        else
+        {
+            // Format sample rate rendah (< 44.1 kHz): evaluasi 10% teratas mendekati Nyquist aktual
+            startFreq = nyquistLimitHz * 0.90;
+            endFreq = nyquistLimitHz;
         }
 
         int startBin = (int)(startFreq / binResolution);
@@ -1218,7 +1281,8 @@ public static class NyquistSpectrumAnalyzer
         double thresholdDb = effectiveRef - dropBelowRefDb;
 
         int maxBin = Math.Min(avgPower.Length - 1, (int)(nyquistLimitHz / binResolution));
-        int minBin = Math.Max(1, (int)(8_000.0 / binResolution));
+        double minFreqHz = nyquistLimitHz >= 16_000 ? 8_000.0 : nyquistLimitHz * 0.35;
+        int minBin = Math.Max(1, (int)(minFreqHz / binResolution));
 
         for (int b = maxBin; b >= minBin; b--)
         {
@@ -1238,10 +1302,13 @@ public static class NyquistSpectrumAnalyzer
     /// Digunakan untuk membedakan filter pemotong psikoakustik lossy (steepness <= -60 dB/okt)
     /// dari peluruhan instrumen akustik alami (steepness > -60 dB/okt).
     /// </summary>
-    private static double ComputeKneeSteepness(double[] avgPower, double binResolution, uint kneeHz)
+    private static double ComputeKneeSteepness(double[] avgPower, double binResolution, uint kneeHz, uint nyquistLimitHz = 0)
     {
-        double f1 = Math.Max(1000.0, (double)kneeHz - 1000.0);
-        double f2 = (double)kneeHz + 1000.0;
+        double halfSpan = (nyquistLimitHz > 0 && nyquistLimitHz < 22_000)
+            ? Math.Max(250.0, Math.Min(1_000.0, nyquistLimitHz * 0.08))
+            : 1_000.0;
+        double f1 = Math.Max(500.0, (double)kneeHz - halfSpan);
+        double f2 = (double)kneeHz + halfSpan;
         return ComputeSpectralSlope(f1, f2, avgPower, binResolution);
     }
 
@@ -1252,14 +1319,19 @@ public static class NyquistSpectrumAnalyzer
     /// Jika band sebelum atau sesudah knee sepenuhnya berada di luar array (tidak ada bin valid),
     /// mengembalikan 0.0 (tak terukur), bukan -160 dB, sehingga gerbang kecuraman MP3 tidak terpenuhi.
     /// </summary>
-    private static double ComputeDropAcrossKnee(double[] avgPower, double binResolution, uint kneeHz)
+    private static double ComputeDropAcrossKnee(double[] avgPower, double binResolution, uint kneeHz, uint nyquistLimitHz = 0)
     {
         if (binResolution <= 0.0 || avgPower.Length == 0) return 0.0;
 
-        double fBeforeLo = Math.Max(0.0, (double)kneeHz - 1000.0);
-        double fBeforeHi = Math.Max(0.0, (double)kneeHz - 200.0);
-        double fAfterLo = (double)kneeHz + 200.0;
-        double fAfterHi = (double)kneeHz + 1000.0;
+        double outer = (nyquistLimitHz > 0 && nyquistLimitHz < 22_000)
+            ? Math.Max(250.0, Math.Min(1_000.0, nyquistLimitHz * 0.08))
+            : 1_000.0;
+        double inner = outer * 0.20;
+
+        double fBeforeLo = Math.Max(0.0, (double)kneeHz - outer);
+        double fBeforeHi = Math.Max(0.0, (double)kneeHz - inner);
+        double fAfterLo = (double)kneeHz + inner;
+        double fAfterHi = (double)kneeHz + outer;
 
         int binBeforeLo = (int)(fBeforeLo / binResolution);
         int binBeforeHi = (int)(fBeforeHi / binResolution);
@@ -1631,10 +1703,13 @@ public static class NyquistSpectrumAnalyzer
             envPower[b] = scratch[p90Idx];
         }
 
-        double pRefEnv = GetBandPowerDb(2_500, 1_500, envPower, binResolution);
+        double pRefEnv = nyquistLimitHz >= 8_000
+            ? GetBandPowerDb(2_500, 1_500, envPower, binResolution)
+            : GetBandPowerDb(nyquistLimitHz * 0.35, nyquistLimitHz * 0.20, envPower, binResolution);
         double reachThresholdDb = Math.Max(-114.0, Math.Max(-80.0, pRefEnv) - 66.0);
         int maxBin = Math.Min(numBins - 1, (int)(nyquistLimitHz / binResolution));
-        int minBin = Math.Max(1, (int)(8_000.0 / binResolution));
+        double envMinFreqHz = nyquistLimitHz >= 16_000 ? 8_000.0 : nyquistLimitHz * 0.35;
+        int minBin = Math.Max(1, (int)(envMinFreqHz / binResolution));
         uint reachHz = (uint)Math.Round(minBin * binResolution);
 
         for (int b = maxBin; b >= minBin; b--)

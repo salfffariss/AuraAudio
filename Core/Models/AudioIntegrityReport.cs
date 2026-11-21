@@ -137,7 +137,9 @@ public record AudioIntegrityReport
             {
                 AuthenticityVerdict.VerifiedLossless => SourceSpec.IsHiRes
                     ? (en ? "Genuine Hi-Res Lossless" : "Hi-Res Lossless Asli")
-                    : (en ? "Genuine Lossless (CD Quality)" : "Lossless Asli (Kualitas CD)"),
+                    : SourceSpec.SampleRateHz < 44_100
+                        ? (en ? $"Genuine Lossless ({SourceSpec.SampleRateHz / 1000.0:F1} kHz)" : $"Lossless Asli ({SourceSpec.SampleRateHz / 1000.0:F1} kHz)")
+                        : (en ? "Genuine Lossless (CD Quality)" : "Lossless Asli (Kualitas CD)"),
                 AuthenticityVerdict.AcousticNaturalRollOff => en
                     ? "Genuine Lossless (Soft Acoustic)"
                     : "Lossless Asli (Instrumen Akustik Lembut)",
@@ -463,11 +465,11 @@ public record AudioIntegrityReport
             AuthenticityVerdict.ZeroPadded24Bit =>
                 $"Consistent with a zero-padded 16-bit source in a 24-bit container: lowest 8 bits are empty ({LsbActivityPercentage:F1}% active, {LsbEntropy:F2}/8 bit entropy).",
             AuthenticityVerdict.SuspectedUpscaledLossy =>
-                $"Consistent with a lossy transcode (MP3/AAC) or bandwidth-limited source: sharp frequency cutoff detected at ~{DetectedCutoffHz / 1000.0:F1} kHz.",
+                $"Consistent with a lossy transcode (MP3/AAC) or bandwidth-limited source on {SourceSpec.SampleRateHz / 1000.0:F1} kHz container: sharp frequency cutoff detected at ~{DetectedCutoffHz / 1000.0:F1} kHz.",
             AuthenticityVerdict.StandardLossy =>
                 $"Standard lossy file ({SourceSpec.Codec}). Measured high-frequency limit is ~{DetectedCutoffHz / 1000.0:F1} kHz from perceptual compression.",
             AuthenticityVerdict.Inconclusive =>
-                $"Inconclusive result: spectral transition around ~{DetectedCutoffHz / 1000.0:F1} kHz or potential resampler imaging requires manual inspection.",
+                $"Inconclusive result on {SourceSpec.SampleRateHz / 1000.0:F1} kHz file: spectral transition around ~{DetectedCutoffHz / 1000.0:F1} kHz or potential resampler imaging requires manual inspection.",
             _ => Explanation
         };
     }
