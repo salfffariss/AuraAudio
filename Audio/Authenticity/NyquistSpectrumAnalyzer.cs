@@ -126,9 +126,10 @@ public static class NyquistSpectrumAnalyzer
     private const double Tail48kMaxDropDb = 10.0;
     private const double Tail48kMaxCliffDb = 16.0;
     private const double Cd44kInconclusiveDropDb = 25.0;
-    // Physical anti-aliasing transition band at 44.1 kHz (95.5% of 22,050 Hz Nyquist):
-    // sits in the 1,141 Hz gap between highest DEV lossy brickwall (20,241 Hz) and lowest DEV soxr downsample (21,382 Hz).
-    private const uint Cd44kSteepGuardMaxHz = 21_050;
+    // Physical anti-aliasing transition band at 44.1 kHz (96.4% of 22,050 Hz Nyquist):
+    // sits cleanly inside the 1,141 Hz gap between highest DEV lossy brickwall (20,241 Hz, margin +1,009 Hz)
+    // and lowest DEV/IETF genuine soxr downsample (21,382 Hz, margin -132 Hz), while keeping 21.2 kHz tone-comb controls Inconclusive.
+    private const uint Cd44kSteepGuardMaxHz = 21_250;
 
     // Low sample-rate (< 44.1 kHz) Nyquist-relative thresholds (FORENSIC #4)
     private const double LowSrFullBandMinNyquistRatio = 0.92;
@@ -780,16 +781,23 @@ public static class NyquistSpectrumAnalyzer
             }
         }
 
-        // FORENSIC #7.3: Multi-segment consistency guard. A genuine lossy codec enforces its lowpass across the entire track;
-        // if the P90 multi-segment upper envelope proves sustained full-band energy >= 2.5 kHz above the detected cutoff,
-        // do not issue a SuspectedUpscaledLossy accusation from a locally band-limited segment (e.g. spoken intro + music).
+        // FORENSIC #7.3: Multi-segment consistency guard (apples-to-apples at the same -48 dB knee threshold & 5-bin smoothing).
+        // A genuine lossy codec enforces its brickwall across the entire track (including the P90 upper envelope).
+        // If another section of the clip carries genuine full-band audio above -48 dB (>= 2.5 kHz above the detected
+        // cutoff and >= 90% of min(Nyquist, 22.05 kHz)), downgrade safely to Inconclusive.
         uint envelopeFullBandFloorHz = (uint)Math.Round(Math.Min(nyquistLimitHz, CdNyquistHz) * LossyEnvelopeFullBandMinRatio);
-        if (verdict == AuthenticityVerdict.SuspectedUpscaledLossy &&
-            upperEnvelopeReachHz >= detectedCutoffHz + LossyEnvelopeContradictionMinGapHz &&
-            upperEnvelopeReachHz >= envelopeFullBandFloorHz)
+        if (verdict == AuthenticityVerdict.SuspectedUpscaledLossy)
         {
-            verdict = AuthenticityVerdict.Inconclusive;
-            explanation = $"Perlu cek manual: rata-rata spektrum turun di ~{detectedCutoffHz / 1000.0:F1} kHz, namun amplop multi-segmen (P90) mendeteksi energi aktif hingga ~{upperEnvelopeReachHz / 1000.0:F1} kHz di bagian lain berkas.";
+            double pRefEnvGuard = nyquistLimitHz >= 8_000
+                ? GetBandPowerDb(2_500, 1_500, envPower, binResolution)
+                : GetBandPowerDb(nyquistLimitHz * 0.35, nyquistLimitHz * 0.20, envPower, binResolution);
+            uint envKneeHz = DetectKneeCutoffHz(envPower, binResolution, pRefEnvGuard, nyquistLimitHz);
+            if (envKneeHz >= detectedCutoffHz + LossyEnvelopeContradictionMinGapHz &&
+                envKneeHz >= envelopeFullBandFloorHz)
+            {
+                verdict = AuthenticityVerdict.Inconclusive;
+                explanation = $"Perlu cek manual: rata-rata spektrum turun di ~{detectedCutoffHz / 1000.0:F1} kHz, namun amplop multi-segmen (P90) mendeteksi energi aktif hingga ~{envKneeHz / 1000.0:F1} kHz di bagian lain berkas.";
+            }
         }
 
         if (isZeroPadded && bitsPerSample >= 24 && verdict != AuthenticityVerdict.ZeroPadded24Bit &&
@@ -1443,10 +1451,20 @@ public static class NyquistSpectrumAnalyzer
         double minFreqHz = nyquistLimitHz >= 16_000 ? 8_000.0 : nyquistLimitHz * 0.35;
         int minBin = Math.Max(1, (int)(minFreqHz / binResolution));
 
+        // FORENSIC #3.4: Use a narrow 5-bin local linear-power mean (b-2..b+2, ~54 Hz @ 44.1 kHz)
+        // instead of a single isolated bin so random quantization spikes above a lossy cutoff cannot mask the true brickwall.
+        const int halfSpan = 2;
         for (int b = maxBin; b >= minBin; b--)
         {
-            double binPowerDb = 10.0 * Math.Log10(Math.Max(1e-16, avgPower[b]));
-            if (binPowerDb > thresholdDb)
+            int lo = Math.Max(minBin, b - halfSpan);
+            int hi = Math.Min(maxBin, b + halfSpan);
+            double sumLin = 0.0;
+            for (int k = lo; k <= hi; k++)
+            {
+                sumLin += avgPower[k];
+            }
+            double localPowerDb = 10.0 * Math.Log10(Math.Max(1e-16, sumLin / (hi - lo + 1)));
+            if (localPowerDb > thresholdDb)
             {
                 uint detectedHz = (uint)Math.Round(b * binResolution);
                 return Math.Min(detectedHz, nyquistLimitHz);

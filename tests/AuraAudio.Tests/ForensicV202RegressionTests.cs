@@ -479,6 +479,51 @@ public sealed class ForensicV202RegressionTests : IDisposable
         Assert.NotEqual(AuthenticityVerdict.SuspectedUpscaledLossy, genReport.Verdict);
     }
 
+    [Fact]
+    public void Forensic3_4_LoudBroadbandWithBrickwallAndIsolatedNoiseFloorAboveCutoff_NotMaskedBySingleBinSpike()
+    {
+        // Reproduces loud electronic MP3-128k (brickwalled at 16.5 kHz, stopband noise floor sitting near -96 dBFS
+        // ~51 dB below pRef with isolated single-bin peaks above -48 dB) -> must still detect the 16.5 kHz brickwall!
+        string path = Path.Combine(_tempDir, "loud_elec_mp3_16500_with_stopband_floor.wav");
+        const int sr = 44_100;
+        int totalSamples = sr * 3;
+        var rng = new Random(3401);
+        var freqs = new System.Collections.Generic.List<double>();
+        for (double f = 400.0; f <= 16_500.0; f += 200.0) freqs.Add(f);
+        double[] ph = new double[freqs.Count];
+        for (int k = 0; k < ph.Length; k++) ph[k] = rng.NextDouble() * 2.0 * Math.PI;
+
+        double[] mono = new double[totalSamples];
+        double maxAbs = 1e-12;
+        for (int i = 0; i < totalSamples; i++)
+        {
+            double t = (double)i / sr;
+            double sum = 0.0;
+            for (int k = 0; k < freqs.Count; k++) sum += Math.Sin(2.0 * Math.PI * freqs[k] * t + ph[k]);
+            mono[i] = sum;
+            double a = Math.Abs(sum);
+            if (a > maxAbs) maxAbs = a;
+        }
+        double scale = 0.85 / maxAbs;
+
+        using (var writer = new WaveFileWriter(path, new WaveFormat(sr, 24, 2)))
+        {
+            byte[] buf = new byte[3];
+            for (int i = 0; i < totalSamples; i++)
+            {
+                // Stopband quantization/re-encoding noise floor sitting ~51 dB below pRef (~-102 dBFS)
+                // where isolated single FFT bins spike above -48 dB but the 5-bin local mean stays below threshold
+                double stopbandNoise = (rng.NextDouble() * 2.0 - 1.0) * 0.00018;
+                double v = Math.Clamp(mono[i] * scale + stopbandNoise, -0.98, 0.98);
+                WritePcmSample(writer, v, 24, buf);
+                WritePcmSample(writer, v, 24, buf);
+            }
+        }
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.Equal(AuthenticityVerdict.SuspectedUpscaledLossy, report.Verdict);
+    }
+
     private static double[] BuildHybridNotchFrequencies(out double[] phases, Random rng)
     {
         var list = new System.Collections.Generic.List<double>();
