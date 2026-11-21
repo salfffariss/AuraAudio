@@ -12,9 +12,12 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using AuraAudio.Audio.Authenticity;
+using AuraAudio.Core.Models;
 using AuraAudio.UI.Helpers;
 using AuraAudio.UI.ViewModels;
 using AuraAudio.UI.Windows;
+using NAudio.Wave;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -233,6 +236,197 @@ public class RuntimePixelPurityTests
             Assert.True(r.DistinctGrays >= 3, $"{r.Name} rendered blank/flat (only {r.DistinctGrays} gray levels).");
             Assert.True(r.MaxDelta <= 2,
                 $"{r.Name} failed monochrome purity: maxDelta={r.MaxDelta} (>2) at ({r.WorstX},{r.WorstY})=RGB({r.WorstR},{r.WorstG},{r.WorstB}), px>2={r.PixelsOver2}");
+        }
+    }
+
+    [Fact]
+    public void Inspector_UpscaledHiRes_RendersMonochromeInBothLanguages()
+    {
+        // Audit 1d (v2.0.2): Generates a synthetic 192 kHz / 24-bit WAV upsampled from a 96 kHz band limit
+        // (46.5 kHz brickwall into digital silence), analyzes it, and verifies that the new UpscaledHiRes
+        // verdict renders cleanly and purely monochrome across InspectorView and InfoInspectorSheet in EN & ID.
+        string outDir = Environment.GetEnvironmentVariable("AURA_PIXEL_AUDIT_DIR")
+            ?? Path.Combine(Path.GetTempPath(), "AuraAudio_UpscaledHiResAudit_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(outDir);
+
+        string tempWav = Path.Combine(Path.GetTempPath(), "AuraAudio_Synth_UpscaledHiRes_192k_" + Guid.NewGuid().ToString("N")[..8] + ".wav");
+        try
+        {
+            WriteSyntheticUpscaledHiRes192kWav(tempWav);
+            AudioIntegrityReport report = NyquistSpectrumAnalyzer.Analyze(tempWav);
+            Assert.Equal(AuthenticityVerdict.UpscaledHiRes, report.Verdict);
+            Assert.Equal("Caution", report.VerdictCategory);
+            Assert.Equal(48_000u, report.DetectedCutoffHz);
+
+            var syntheticTrack = new AuraAudio.Core.Models.Track(
+                id: 999_001,
+                filePath: tempWav,
+                title: "Synthetic 96k-to-192k Hi-Res Upsample",
+                artist: "AuraAudio Verification Signal",
+                sortArtist: "AuraAudio Verification Signal",
+                album: "v2.0.2 Release Audit",
+                albumArtist: "AuraAudio Verification Signal",
+                year: 2026,
+                trackNumber: 1,
+                discNumber: 1,
+                duration: TimeSpan.FromSeconds(2),
+                streamSpec: report.SourceSpec,
+                fileSizeBytes: new FileInfo(tempWav).Length,
+                dateAdded: DateTime.UtcNow,
+                hasEmbeddedCover: false,
+                coverArtCacheKey: null);
+
+            var reports = new List<PixelReport>();
+            string? enBadge = null;
+            string? idBadge = null;
+
+            WpfStaTestRunner.Run(() =>
+            {
+                bool? prevReduced = SpringAnimator.ForceReducedMotionOverride;
+                string prevLang = LocalizationManager.CurrentLanguage;
+                SpringAnimator.ForceReducedMotionOverride = true;
+
+                MainWindow? win = null;
+                try
+                {
+                    win = new MainWindow
+                    {
+                        Width = 1440,
+                        Height = 900,
+                        ShowInTaskbar = false,
+                        Left = -20000,
+                        Top = -20000
+                    };
+                    win.Show();
+                    Pump(180);
+
+                    var vm = Assert.IsType<MainViewModel>(win.DataContext);
+                    vm.CurrentTrack = null;
+                    vm.QueueTracks.Clear();
+                    vm.CurrentView = "Inspector";
+                    vm.InspectedTrack = syntheticTrack;
+                    vm.CurrentIntegrityReport = report;
+                    Pump(160);
+
+                    // 1. English Inspector capture
+                    SetStaLanguage("en");
+                    vm.CurrentIntegrityReport = null;
+                    vm.CurrentIntegrityReport = report;
+                    Pump(180);
+                    enBadge = vm.CurrentIntegrityReport.VerdictBadge;
+                    Assert.Contains("Upscaled Hi-Res", enBadge, StringComparison.OrdinalIgnoreCase);
+                    Assert.Contains("96", vm.CurrentIntegrityReport.LocalizedExplanation, StringComparison.OrdinalIgnoreCase);
+                    reports.Add(CaptureAndAudit(win, Path.Combine(outDir, "12_inspector_upscaled_hires_en.png"), "12_inspector_upscaled_hires_en.png"));
+
+                    // 2. Indonesian Inspector capture
+                    SetStaLanguage("id");
+                    vm.CurrentIntegrityReport = null;
+                    vm.CurrentIntegrityReport = report;
+                    Pump(180);
+                    idBadge = vm.CurrentIntegrityReport.VerdictBadge;
+                    Assert.Contains("Upscale Hi-Res", idBadge, StringComparison.OrdinalIgnoreCase);
+                    Assert.Contains("96", vm.CurrentIntegrityReport.LocalizedExplanation, StringComparison.OrdinalIgnoreCase);
+                    reports.Add(CaptureAndAudit(win, Path.Combine(outDir, "13_inspector_upscaled_hires_id.png"), "13_inspector_upscaled_hires_id.png"));
+
+                    // 3. Get Info Sheet (Authenticity tab) with UpscaledHiRes in English
+                    SetStaLanguage("en");
+                    vm.PrepareInfoSheetForTrack(syntheticTrack);
+                    vm.CurrentIntegrityReport = null;
+                    vm.CurrentIntegrityReport = report;
+                    vm.Presentation.ActiveInfoTab = "Authenticity";
+                    vm.Presentation.IsInfoSheetOpen = true;
+                    Pump(180);
+                    reports.Add(CaptureAndAudit(win, Path.Combine(outDir, "14_infosheet_upscaled_hires_en.png"), "14_infosheet_upscaled_hires_en.png"));
+                    vm.Presentation.CloseInfoSheetCommand.Execute(null);
+                    Pump(80);
+                }
+                finally
+                {
+                    SetStaLanguage(prevLang);
+                    SpringAnimator.ForceReducedMotionOverride = prevReduced;
+                    try { win?.Close(); } catch { }
+                }
+            });
+
+            _output.WriteLine($"EN Badge = '{enBadge}'");
+            _output.WriteLine($"ID Badge = '{idBadge}'");
+            foreach (var r in reports)
+            {
+                _output.WriteLine($"[{(r.MaxDelta <= 2 ? "PASS" : "FAIL")}] {r.Name,-36} | {r.Width,4}x{r.Height,-4} | grays={r.DistinctGrays,3} | maxDelta={r.MaxDelta,3} | px>2={r.PixelsOver2,6}");
+                Assert.True(r.DistinctGrays >= 3, $"{r.Name} rendered flat.");
+                Assert.True(r.MaxDelta <= 2, $"{r.Name} failed monochrome purity: maxDelta={r.MaxDelta} at ({r.WorstX},{r.WorstY})=RGB({r.WorstR},{r.WorstG},{r.WorstB})");
+            }
+        }
+        finally
+        {
+            try { if (File.Exists(tempWav)) File.Delete(tempWav); } catch { }
+        }
+    }
+
+    private static void SetStaLanguage(string langCode)
+    {
+        var app = Application.Current;
+        if (app != null)
+        {
+            var merged = app.Resources.MergedDictionaries;
+            var existing = merged.FirstOrDefault(d => d.Source != null && d.Source.OriginalString.Contains("/UI/Resources/Strings."));
+            var next = new ResourceDictionary { Source = new Uri($"/AuraAudio;component/UI/Resources/Strings.{langCode}.xaml", UriKind.Relative) };
+            if (existing != null) merged[merged.IndexOf(existing)] = next;
+            else merged.Add(next);
+        }
+
+        var field = typeof(LocalizationManager).GetField(
+            "_currentLanguage",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        field?.SetValue(null, langCode);
+
+        var evtField = typeof(LocalizationManager).GetField(
+            "LanguageChanged",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        if (evtField?.GetValue(null) is Action handler)
+        {
+            handler.Invoke();
+        }
+    }
+
+    private static void WriteSyntheticUpscaledHiRes192kWav(string path)
+    {
+        const int sr = 192_000;
+        const int totalSamples = sr * 2;
+        var rng = new Random(20206);
+        var freqs = new List<double>();
+        for (double f = 500.0; f <= 46_500.0; f += 250.0) freqs.Add(f);
+        double[] phases = new double[freqs.Count];
+        for (int i = 0; i < phases.Length; i++) phases[i] = rng.NextDouble() * 2.0 * Math.PI;
+
+        double[] mono = new double[totalSamples];
+        double maxAbs = 1e-12;
+        for (int i = 0; i < totalSamples; i++)
+        {
+            double t = (double)i / sr;
+            double s = 0.0;
+            for (int k = 0; k < freqs.Count; k++)
+            {
+                s += Math.Sin(2.0 * Math.PI * freqs[k] * t + phases[k]);
+            }
+            mono[i] = s;
+            double a = Math.Abs(s);
+            if (a > maxAbs) maxAbs = a;
+        }
+        double scale = 0.72 / maxAbs;
+
+        using var writer = new WaveFileWriter(path, new WaveFormat(sr, 24, 2));
+        byte[] sampleBuf = new byte[6];
+        for (int i = 0; i < totalSamples; i++)
+        {
+            int v = (int)Math.Round(Math.Clamp(mono[i] * scale, -0.9999, 0.9999) * 8_388_607.0);
+            sampleBuf[0] = (byte)(v & 0xFF);
+            sampleBuf[1] = (byte)((v >> 8) & 0xFF);
+            sampleBuf[2] = (byte)((v >> 16) & 0xFF);
+            sampleBuf[3] = sampleBuf[0];
+            sampleBuf[4] = sampleBuf[1];
+            sampleBuf[5] = sampleBuf[2];
+            writer.Write(sampleBuf, 0, 6);
         }
     }
 
