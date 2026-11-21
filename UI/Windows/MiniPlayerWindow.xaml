@@ -4,7 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:helpers="clr-namespace:AuraAudio.UI.Helpers"
         xmlns:views="clr-namespace:AuraAudio.UI.Views"
-        Title="AuraAudio v2.0.1 Mini-Player"
+        Title="AuraAudio v2.0.2 Mini-Player"
         Width="350"
         Height="160"
         WindowStyle="None"

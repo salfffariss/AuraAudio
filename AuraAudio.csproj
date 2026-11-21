@@ -6,16 +6,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
-    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;artifacts\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;artifacts\**;tools\**</DefaultItemExcludes>
 
     <!-- Audiophile Windows 11 Desktop Metadata -->
     <AssemblyName>AuraAudio</AssemblyName>
     <Product>AuraAudio Desktop Music Player</Product>
     <Company>AuraAudio SoundLab</Company>
     <Description>Bit-Perfect WASAPI Exclusive Audiophile Desktop Music Player for Windows 11</Description>
-    <Version>2.0.1</Version>
-    <FileVersion>2.0.1.0</FileVersion>
-    <AssemblyVersion>2.0.1.0</AssemblyVersion>
+    <Version>2.0.2</Version>
+    <FileVersion>2.0.2.0</FileVersion>
+    <AssemblyVersion>2.0.2.0</AssemblyVersion>
 
     <!-- Application Icon (Win32 Executable & Taskbar) -->
     <ApplicationIcon>Assets\AuraAudio.ico</ApplicationIcon>
@@ -40,7 +40,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="BunLabs.NAudio.Flac" Version="2.0.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
     <PackageReference Include="NAudio.Wasapi" Version="3.1.0" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.13" />

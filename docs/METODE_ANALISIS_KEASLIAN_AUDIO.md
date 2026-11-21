@@ -1,8 +1,8 @@
-# Dokumentasi Metode Analisis Keaslian Audio AuraAudio (v2.0.1)
+# Dokumentasi Metode Analisis Keaslian Audio AuraAudio (v2.0.2)
 
 Dokumen ini menjabarkan metodologi pemrosesan sinyal digital (DSP), konstanta kalibrasi, aturan pohon keputusan, keterbatasan fisik, serta hasil validasi korpus yang diimplementasikan di [`NyquistSpectrumAnalyzer.cs`](../Audio/Authenticity/NyquistSpectrumAnalyzer.cs), [`AudioIntegrityReport.cs`](../Core/Models/AudioIntegrityReport.cs), dan [`InspectorView.xaml`](../UI/Views/InspectorView.xaml).
 
-Seluruh ambang batas dan urutan evaluasi dalam dokumen ini diselaraskan langsung dengan kode sumber `v2.0.1`.
+Seluruh ambang batas dan urutan evaluasi dalam dokumen ini diselaraskan langsung dengan kode sumber `v2.0.2`.
 
 ---
 
@@ -38,16 +38,16 @@ flowchart TD
 
 ## 2. Rincian Metodologi Analisis
 
-### Metode 1: Dynamic RMS Peak Hunting & Penanganan Stream Non-Seekable
+### Metode 1: Dynamic RMS Peak Hunting, Klip Pendek `< 10 dtk` & Stream Non-Seekable
 * **Tujuan:** Menghindari analisis pada intro hening atau jeda akustik yang tidak mewakili energi frekuensi tinggi rekaman.
-* **Implementasi (`FindLoudestSectionTime`):**
-  1. Untuk durasi `< 10` detik, titik analisis ditetapkan pada `30%` durasi.
+* **Implementasi (`FindLoudestSectionTime` & `ComputeSpreadShortClipPowerSpectrum`, diperkuat di v2.0.2):**
+  1. Untuk durasi `>= 2` detik hingga `< 10` detik, engine memindai RMS di 5 titik `{12%, 30%, 50%, 70%, 85%}` untuk audit LSB, sedangkan FFT utama disebar merata lintas **8 segmen × 4 jendela = 32 jendela** di sepanjang klip (atau pembacaan penuh berurutan jika klip `<= 32` jendela FFT).
   2. Untuk durasi `>= 10` detik, engine mengevaluasi 5 posisi kandidat:
      $$\text{Posisi} \in \{20\%, 35\%, 50\%, 65\%, 80\%\}$$
-  3. Pada setiap titik, engine membaca `8.192` frame dan menghitung RMS dari rata-rata kuadrat seluruh kanal:
+  3. Pada setiap titik, engine membaca hingga `8.192` frame dan menghitung RMS dari rata-rata kuadrat seluruh kanal:
      $$x_{\text{rms}} = \sqrt{\frac{1}{N}\sum_{i=0}^{N-1}\left(\frac{1}{C}\sum_{c=0}^{C-1} x[i, c]^2\right)}$$
   4. Titik dengan $x_{\text{rms}}$ tertinggi dipilih untuk audit LSB dan FFT utama.
-  5. **Transparansi Kegagalan Seek (v2.0.1):** Engine memverifikasi keberhasilan *seek* pada tahap pemindaian RMS, tahap audit bit-depth, dan tahap FFT (`scanSeekSucceeded && bitDepthSeekOk && fftSeekOk`). Jika stream tidak mendukung *seek*, laporan menetapkan `AnalysisTimestamp = 00:00`, `AnalysisPositionPercentage = 0.0%`, dan menambahkan catatan transparan bahwa analisis berjalan dari posisi awal stream.
+  5. **Transparansi Kegagalan Seek:** Engine memverifikasi keberhasilan *seek* pada tahap pemindaian RMS, tahap audit bit-depth, dan tahap FFT (`scanSeekSucceeded && bitDepthSeekOk && fftSeekOk`). Jika stream tidak mendukung *seek*, laporan menetapkan `AnalysisTimestamp = 00:00`, `AnalysisPositionPercentage = 0.0%`, dan menambahkan catatan transparan bahwa analisis berjalan dari posisi awal stream.
 
 ---
 
@@ -122,28 +122,29 @@ flowchart TD
 
 ---
 
-### Metode 6: Deteksi Cutoff Lossy, Dead-Zero Brickwall & Peluruhan Akustik Alami
-1. **Titik Belok (`DetectKneeCutoffHz`):** Memindai mundur dari Nyquist ke `8.000 Hz` untuk menemukan frekuensi tertinggi yang melampaui `max(-80.0, pRef) - 48.0 dB`.
+### Metode 6: Deteksi Cutoff Lossy, Dead-Zero Brickwall Berbasis Wadah & Peluruhan Akustik Alami
+1. **Titik Belok (`DetectKneeCutoffHz`, diperkuat di v2.0.2):** Memindai mundur dari Nyquist menggunakan **rata-rata daya linear 5-bin lokal (`b-2..b+2`, ~54 Hz @ 44.1 kHz)** agar puncak kuantisasi satu bin tunggal tidak menyamarkan *brickwall* MP3 pada materi keras, untuk menemukan frekuensi tertinggi yang melampaui `max(-80.0, pRef) - 48.0 dB`. Untuk sample rate `< 44.1 kHz`, batas bawah pemindaian dan pita `pRef` diskalakan proporsional terhadap Nyquist wadah.
 2. **Kecuraman & Penurunan Melintasi Knee:**
-   * `ComputeKneeSteepness`: slope OLS pada `[knee - 1.000, knee + 1.000] Hz`.
-   * `ComputeDropAcrossKnee`: selisih rata-rata daya linear `[knee - 1.000, knee - 200] Hz` dikurangi `[knee + 200, knee + 1.000] Hz`. Mengembalikan `0.0 dB` jika salah satu pita keluar dari batas array.
+   * `ComputeKneeSteepness`: slope OLS pada `[knee - halfSpan, knee + halfSpan]` (`halfSpan = 1.000 Hz` untuk `>= 44.1 kHz`, diskalakan `8%` Nyquist untuk `< 44.1 kHz`).
+   * `ComputeDropAcrossKnee`: selisih rata-rata daya linear sebelum dan sesudah `knee`. Mengembalikan `0.0 dB` jika salah satu pita keluar dari batas array.
 3. **Gerbang Utama Lossy (`isPrimaryMp3Cutoff*`):**
    * Mewajibkan bukti ganda: `kneeSteepness <= -60.0 dB/oktaf` **dan** `dropAcrossKnee >= 20.0 dB`,
-   * Disertai `detectedKneeHz <= 17.500 Hz` atau pola relatif (`relP16k < -45.0 dB`, atau `relP20k < -50.0 dB` dengan `relP16k > -42.0 / -40.0 / -35.0 dB` untuk Hi-Res / 48k / 44.1k).
-4. **Pemindai Brickwall Lossy Jatuh ke Nol Digital (`ComputeDeadZeroLossyBrickwall`, baru di v2.0.1):**
-   * Menangkap berkas transcode lossy (seperti MP3 128 kbps dalam FLAC 24-bit) pada materi akustik lembut (misal piano solo) yang energinya sudah turun di bawah `pRef - 48 dB` sebelum `16 kHz`.
+   * Disertai `detectedKneeHz <= 17.500 Hz` atau pola relatif (`relP16k < -45.0 dB`, atau `relP20k < -50.0 dB` dengan `relP16k > -42.0` untuk Hi-Res / `-40.0 dB` untuk 48k & 44.1k).
+   * **Penjaga Konsistensi Multi-Segmen (v2.0.2):** Sebelum mengeluarkan `SuspectedUpscaledLossy`, engine membandingkan `detectedCutoffHz` terhadap `envKneeHz` pada spektrum amplop P90 dengan ambang `-48 dB` dan smoothing 5-bin yang identik. Jika segmen lain terbukti aktif penuh (`envKneeHz >= detectedCutoffHz + 2.500 Hz` dan `>= 90%` dari `min(Nyquist, 22.05 kHz)`), vonis diturunkan aman ke `Inconclusive`.
+4. **Pemindai Brickwall Lossy Berbasis Kedalaman Bit (`ComputeDeadZeroLossyBrickwall`, diperkuat di v2.0.2):**
+   * Menangkap berkas transcode lossy (seperti MP3 128–256 kbps dalam FLAC 16/24-bit) pada materi akustik lembut yang energinya sudah turun di bawah `pRef - 48 dB` sebelum `16 kHz`.
    * Memindai `f` dari `15.000` hingga `min(19.500, Nyquist - 1.500) Hz` (langkah `250 Hz`):
      * `dropDb = GetBandPowerDb(f - 600, 400) - GetBandPowerDb(f + 850, 650) >= 20.0 dB`
-     * Rata-rata ekor `[f + 1.000, min(22.000, Nyquist - 200)] Hz <= -152.0 dBFS`
-     * Slope lokal `[f - 1.000, f + 1.000] Hz <= -60.0 dB/oktaf`
-5. **Peluruhan Akustik Alami (`isSmoothAcousticRollOff`, diperkuat di v2.0.1):**
+     * Rata-rata ekor `[f + 1.000, min(22.000, Nyquist - 200)] Hz`: `<= -152.0 dBFS` untuk wadah `>= 24-bit`, atau **`<= -132.0 dBFS` dengan plataran kuantisasi datar (`σ <= 2.2 dB`)** untuk wadah `<= 16-bit`.
+     * Slope lokal `[f - 1.000, f + 1.000] Hz <= -60.0 dB/oktaf`.
+5. **Peluruhan Akustik Alami (`isSmoothAcousticRollOff`):**
    * Membedakan rekaman akustik asli yang lembut (piano solo, gitar akustik, vokal) dari filter lowpass buatan maupun CD upsample:
-     * `effectiveReachHz = max(upperEnvelopeReachHz, detectedKneeHz) >= 9.000 Hz`
+     * `effectiveReachHz = max(upperEnvelopeReachHz, detectedKneeHz) >= 9.000 Hz` (atau `55%` Nyquist untuk `< 44.1 kHz`)
      * `dropAcrossKnee < 12.5 dB`
      * `midTrebleCliffDrop < 13.5 dB` (`ComputeMaxMidTrebleCliff`: nilai minimum penurunan konsisten di `avgPower` dan `envPower` pada `9.0 - 20.8 kHz`)
      * `kneeSteepness > -44.0 dB/oktaf`
      * `trebleDecaySlope >= -42.0 dB/oktaf` (`ComputeTrebleDecaySlope` pada `envPower` dari `4 kHz` hingga `clamp(knee + 1.5 kHz, 8 kHz, 16 kHz)`)
-     * `lowTrebleSlope >= -38.0 dB/oktaf` (OLS `2.0 - 4.0 kHz`)
+     * `lowTrebleSlope >= -38.0 dB/oktaf` (OLS `2.0 - 4.0 kHz`, diskalakan untuk `< 16 kHz`)
      * `!isDeadUltrasonicSilence` dan `!isDeadZeroLossyCutoff`
      * Jika `sampleRate >= 48.0 kHz`: `slopeCdTransition > -36.0 dB/oktaf`
 
@@ -153,22 +154,25 @@ flowchart TD
 * Menghitung korelasi Pearson ($r$) antara profil dBFS pita bawah $(22.050 - d)$ dan pita atas $(22.050 + d)$ untuk $d \in [200, 4.000]\text{ Hz}$ pada berkas `>= 48 kHz`.
 * **Gerbang Cermin Standar (`isImagingDetected`):**
   $$r \ge 0.65 \quad \land \quad \text{Attenuation} \le 15.0\text{ dB} \quad \land \quad \bar{P}_{\text{upper}} > -128.0\text{ dBFS}$$
-* **Penjaga Cermin Pita Lebar Datar (`isFlatBroadbandMirror`, baru di v2.0.1):**
-  * Untuk berkas `>= 88.2 kHz`, bila `r >= 0.30`, `attenuation <= 3.0 dB`, `upperMean > -85.0 dBFS`, dan `detectedKneeHz >= Nyquist - 500 Hz`, berkas ditahan sebagai `Inconclusive` agar resampler non-ideal berenergi pita lebar tidak lolos sebagai `VerifiedLossless`.
+* **Penjaga Cermin Pita Lebar Datar (`isFlatBroadbandMirror`, diperluas ke `>= 48 kHz` di v2.0.2):**
+  * Untuk berkas `>= 48.0 kHz` (48 kHz maupun Hi-Res), bila `r >= 0.30`, `attenuation <= 3.0 dB`, `upperMean > -95.0 dBFS`, dan `detectedKneeHz >= Nyquist - 500 Hz`, berkas ditahan aman sebagai `Inconclusive` agar upsample resampler linear tidak lolos sebagai `VerifiedLossless` / `AcousticNaturalRollOff`.
 
 ---
 
-### Metode 8: Deteksi Tebing Spektral CD (`ComputeCliff`) & Penjaga Ekor 48 kHz
+### Metode 8: Deteksi Tebing CD (`ComputeCliff`), Penjaga Ekor 48 kHz & Upsampling Hi-Res-ke-Hi-Res (`DetectHiResUpsampleFromLowerRate`)
 * **`ComputeCliff`:** Memindai `19.000 Hz` hingga `min(24.000, Nyquist - 300) Hz`, membandingkan rata-rata daya linear `[f - 500, f - 100] Hz` terhadap `[f + 100, f + 500] Hz`.
-* Rentang tebing CD (`[CdCliffMinHz, CdCliffMaxHz]`) diperluas di v2.0.1 menjadi **`21.000 - 22.700 Hz`** (sebelumnya mulai `21.500 Hz`) untuk menangkap tebing resampler di `21.3 - 21.4 kHz` pada materi lembut, dengan syarat `cliffDropDb >= 8.0 dB` dan `slopeCdTransition <= -36.0 dB/oktaf`.
+* Rentang tebing CD (`[CdCliffMinHz, CdCliffMaxHz]`): **`21.000 - 22.700 Hz`** dengan `cliffDropDb >= 8.0 dB` dan `slopeCdTransition <= -36.0 dB/oktaf`.
 * **Penjaga Ekor Ultrasonik 48 kHz (`hasLiveUltrasonicTail48k`):** Pada wadah `48 kHz`, berkas dengan `p22_5k > -102.0 dBFS`, `p23_5k > -108.0 dBFS`, `p22_5k - p23_5k <= 10.0 dB`, dan `cliffDropDb < 16.0 dB` dibebaskan dari vonis `UpscaledFromCd`.
+* **Deteksi Upsampling Hi-Res-ke-Hi-Res (`DetectHiResUpsampleFromLowerRate`, baru di v2.0.2):**
+  * Untuk wadah `>= 88.2 kHz`, memindai batas Nyquist standar lebih rendah (`48, 88.2, 96, 176.4, 192 kHz`) yang bernilai `<= 85%` dari sample rate wadah (menghindari tumpang tindih dengan filter anti-aliasing wadah itu sendiri).
+  * Vonis **`UpscaledHiRes`** (`VerdictCategory = "Caution"`) dikeluarkan hanya jika keempat syarat fisik terpenuhi bersamaan di batas sumber $f_{\text{src}}$: (1) pita pas `[0.85..0.94] f_src > -130 dBFS`, (2) penurunan tajam `>= 25.0 dB` ke `[1.03..1.15] f_src` dan slope OLS `[0.92..1.04] f_src <= -60.0 dB/oktaf`, (3) seluruh pita atas `[1.05 f_src .. Nyquist]` mencapai keheningan digital berbasis wadah (`<= -152.0 dBFS` untuk `>= 24-bit`, atau `<= -132.0 dBFS` datar `σ <= 2.2 dB` untuk `16-bit`) dengan drop total `>= 28.0 dB`, dan (4) amplop P90 mengonfirmasi pita atas sunyi (`<= -145 dBFS` 24-bit / `<= -128 dBFS` 16-bit) dan `upperEnvelopeReachHz <= 1.03 f_src`.
 * **Kualifikasi Bukti Moderat (`UpscaledFromCd`):** Jika `dropAcrossKnee < 10.0 dB` dan `cliffDropDb < 15.0 dB`, teks vonis menggunakan frasa terukur *"Kemungkinan besar konsisten dengan upsampling dari master CD 44.1 kHz"*.
 
 ---
 
-## 3. Matriks Pohon Keputusan (v2.0.1)
+## 3. Matriks Pohon Keputusan (v2.0.2)
 
-Seluruh pohon keputusan dievaluasi secara berurutan dari atas ke bawah. Semua cabang `VerifiedLossless`, `AcousticNaturalRollOff`, dan `HybridMaster` menyertakan peringatan transparan bahwa berkas AAC/Opus bitrate tinggi tanpa lowpass kaku tidak dapat dibedakan melalui analisis spektrum saja.
+Seluruh pohon keputusan dievaluasi secara berurutan dari atas ke bawah. Semua cabang `VerifiedLossless`, `AcousticNaturalRollOff`, dan `HybridMaster` menyertakan peringatan transparan bahwa berkas lossy bitrate tinggi tanpa lowpass kaku (`AAC/Opus`, `MP3 V0`, `Vorbis q5`) tidak dapat dibedakan melalui analisis spektrum saja.
 
 ### A. Format Hi-Res (`sampleRate >= 88.2 kHz`)
 
@@ -176,17 +180,18 @@ Seluruh pohon keputusan dievaluasi secara berurutan dari atas ke bawah. Semua ca
 |:---:|---|---|:---:|
 | **1** | `isDitherShelfDetected && bitsPerSample >= 24 && p22_5k < -122.0` | `Dithered16BitUpscale` | `22.050 Hz` |
 | **2** | `isImagingDetected \|\| isFlatBroadbandMirror` | `Inconclusive` | `22.050 Hz` |
-| **3** | `isCdBrickwallHiRes`: (`knee ∈ [21k, 22.6k] && slope <= -36 && (p22_5k < p20k - 12 \|\| p22_5k < -85)`) ATAU (`cliff ∈ [21k, 22.7k] && cliffDrop >= 8 && slope <= -36`) ATAU (`isDeadUltrasonicSilence && slope <= -36`) | `UpscaledFromCd` | `22.050 Hz` |
-| **4** | `isPrimaryMp3CutoffHiRes \|\| isDeadZeroLossyCutoff` | `SuspectedUpscaledLossy` | `knee` / `deadZeroCutoff` |
-| **5** | `bitsPerSample >= 24 && isZeroPadded` | `ZeroPadded24Bit` | `min(Nyq, max(knee, envReach))` |
-| **6** | `knee <= 21.0 kHz && isSmoothAcousticRollOff` | `AcousticNaturalRollOff` | `Nyquist` |
-| **7** | `knee <= 21.0 kHz` (tidak memenuhi kriteria roll-off alami) | `Inconclusive` | `knee` |
-| **8** | `(p22_5k < -85 \|\| slope <= -36) && (p35k > -90 \|\| p40k > -95) && noiseStdDev >= 2.5` | `HybridMaster` | `min(Nyq, 44.000 Hz)` |
-| **9** | `knee > 21.0 kHz && hasSmoothHiResContinuation && p24k < -80 && p35k <= -100` | `AcousticNaturalRollOff` | `min(Nyq, max(24k, knee))` |
-| **10** | `knee > 21.0 kHz && hasSmoothHiResContinuation && (p35k > -105 \|\| p40k > -108 \|\| p24k >= -80)` | `VerifiedLossless` | `min(Nyq, max(35k, knee))` |
-| **11** | Sisanya (zona transisi ambigu) | `Inconclusive` | `knee` |
+| **3** | `isTrueHybridMaster`: takik CD nyata (`p20k - p22_5k >= 12 dB` + `slope <= -36` atau tebing CD `>= 8 dB`) **DAN** pantulan ultrasonik `> 35 kHz` (`>= 6 dB` di atas `p22_5k`, serempak atau via amplop P90 *time-spliced*) | `HybridMaster` | `min(Nyq, max(44k, envReach))` |
+| **4** | `isPrimaryMp3CutoffHiRes \|\| isDeadZeroLossyCutoff` *(prioritas di atas `UpscaledFromCd`)* | `SuspectedUpscaledLossy` | `knee` / `deadZeroCutoff` |
+| **5** | `isCdBrickwallHiRes`: (`knee ∈ [21k, 22.6k] && slope <= -36 && (p22_5k < p20k - 12 \|\| p22_5k < -85)`) ATAU (`cliff ∈ [21k, 22.7k] && cliffDrop >= 8 && slope <= -36`) ATAU (`isDeadUltrasonicSilence && slope <= -36`) | `UpscaledFromCd` | `22.050 Hz` |
+| **6** | `DetectHiResUpsampleFromLowerRate`: brickwall `>= 25 dB` & `<= -60 dB/okt` di batas Nyquist standar lebih rendah (`48 / 88.2 / 96 / 176.4 / 192 kHz`) + pita atas sunyi | `UpscaledHiRes` | `f_src` (Nyquist sumber) |
+| **7** | `bitsPerSample >= 24 && isZeroPadded` | `ZeroPadded24Bit` | `min(Nyq, max(knee, envReach))` |
+| **8** | `knee <= 21.0 kHz && isSmoothAcousticRollOff` | `AcousticNaturalRollOff` | `Nyquist` |
+| **9** | `knee <= 21.0 kHz` (tidak memenuhi kriteria roll-off alami) | `Inconclusive` | `knee` |
+| **10** | `knee > 21.0 kHz && hasSmoothHiResContinuation && p24k < -80 && p35k <= -100` | `AcousticNaturalRollOff` | `min(Nyq, max(24k, knee))` |
+| **11** | `knee > 21.0 kHz && hasSmoothHiResContinuation && (p35k > -105 \|\| p40k > -108 \|\| p24k >= -80)` | `VerifiedLossless` | `min(Nyq, max(35k, knee))` |
+| **12** | Sisanya (zona transisi ambigu) | `Inconclusive` | `knee` |
 
-Catatan `hasSmoothHiResContinuation` (diperketat di v2.0.1):
+Catatan `hasSmoothHiResContinuation`:
 `slopeCdTransition >= -30.0` ATAU (`knee > 24.0 kHz && dropAcrossKnee < 10.0 && kneeSteepness >= -40.0 && cliffDropDb < 8.0 && imagingCorrelation < 0.45`).
 
 ---
@@ -196,9 +201,9 @@ Catatan `hasSmoothHiResContinuation` (diperketat di v2.0.1):
 | Prioritas | Kondisi Pengujian | Vonis (`AuthenticityVerdict`) | Cutoff Dilaporkan |
 |:---:|---|---|:---:|
 | **1** | `isDitherShelfDetected && bitsPerSample >= 24 && p22k < -122.0` | `Dithered16BitUpscale` | `22.050 Hz` |
-| **2** | `isImagingDetected` | `Inconclusive` | `22.050 Hz` |
-| **3** | `!hasLiveUltrasonicTail48k` DAN ((`cliff ∈ [21k, 22.7k] && cliffDrop >= 8 && slope <= -36`) ATAU (`knee ∈ [21k, 22.6k] && slope <= -36 && (p22_5k < -108 \|\| p23_5k < -118 \|\| p20k - p22_5k >= 25)`) ATAU (`isDeadUltrasonicSilence && slope <= -36`)) | `UpscaledFromCd` | `22.050 Hz` |
-| **4** | `isPrimaryMp3Cutoff48k \|\| isDeadZeroLossyCutoff` | `SuspectedUpscaledLossy` | `knee` / `deadZeroCutoff` |
+| **2** | `isImagingDetected \|\| isFlatBroadbandMirror` | `Inconclusive` | `22.050 Hz` |
+| **3** | `isPrimaryMp3Cutoff48k \|\| isDeadZeroLossyCutoff` *(prioritas di atas `UpscaledFromCd`)* | `SuspectedUpscaledLossy` | `knee` / `deadZeroCutoff` |
+| **4** | `!hasLiveUltrasonicTail48k` DAN ((`cliff ∈ [21k, 22.7k] && cliffDrop >= 8 && slope <= -36`) ATAU (`knee ∈ [21k, 22.6k] && slope <= -36 && (p22_5k < -108 \|\| p23_5k < -118 \|\| p20k - p22_5k >= 25)`) ATAU (`isDeadUltrasonicSilence && slope <= -36`)) | `UpscaledFromCd` | `22.050 Hz` |
 | **5** | `bitsPerSample >= 24 && isZeroPadded` | `ZeroPadded24Bit` | `24.000 Hz` |
 | **6** | `knee <= 21.0 kHz && isSmoothAcousticRollOff` | `AcousticNaturalRollOff` | `24.000 Hz` |
 | **7** | `knee <= 21.0 kHz` | `Inconclusive` | `knee` |
@@ -208,7 +213,7 @@ Catatan `hasSmoothHiResContinuation` (diperketat di v2.0.1):
 
 ---
 
-### C. Format Standar CD 44.1 kHz (`sampleRate <= 44.1 kHz`)
+### C. Format Standar CD 44.1 kHz (`sampleRate == 44.1 kHz`)
 
 | Prioritas | Kondisi Pengujian | Vonis (`AuthenticityVerdict`) | Cutoff Dilaporkan |
 |:---:|---|---|:---:|
@@ -217,10 +222,20 @@ Catatan `hasSmoothHiResContinuation` (diperketat di v2.0.1):
 | **3** | `bitsPerSample >= 24 && isDitherShelfDetected && p20k < -122.0 && p20kEnv < -122.0` | `Dithered16BitUpscale` | `22.050 Hz` |
 | **4** | `knee <= 21.0 kHz && isSmoothAcousticRollOff` | `AcousticNaturalRollOff` | `22.050 Hz` |
 | **5** | `knee <= 21.0 kHz` | `Inconclusive` | `knee` |
-| **6** | `dropAcrossKnee >= 25.0 && kneeSteepness <= -60.0` | `Inconclusive` | `knee` |
-| **7** | Sisanya (`knee > 21.0 kHz`, tanpa drop curam) | `VerifiedLossless` | `22.050 Hz` |
+| **6** | `knee <= 21.25 kHz && dropAcrossKnee >= 25.0 && kneeSteepness <= -60.0` *(membedakan filter anti-aliasing 21.4 kHz dari transisi ambigu)* | `Inconclusive` | `knee` |
+| **7** | Sisanya (`knee > 21.25 kHz` atau tanpa drop curam) | `VerifiedLossless` | `22.050 Hz` |
 
-Catatan tambahan: jika `isZeroPadded && bitsPerSample >= 24` terdeteksi bersamaan dengan vonis spektral prioritas lebih tinggi (misal `UpscaledFromCd` atau `SuspectedUpscaledLossy`), catatan zero-padding tetap dilampirkan pada teks penjelasan.
+### D. Format Sample Rate Rendah (`sampleRate < 44.1 kHz`, baru di v2.0.2)
+
+| Prioritas | Kondisi Pengujian (Relatif terhadap Nyquist Wadah) | Vonis (`AuthenticityVerdict`) | Cutoff Dilaporkan |
+|:---:|---|---|:---:|
+| **1** | `sampleRate >= 22.05 kHz && knee <= 0.85 * Nyquist && kneeSteepness <= -60 && dropAcrossKnee >= 20` | `SuspectedUpscaledLossy` | `knee` |
+| **2** | `bitsPerSample >= 24 && isZeroPadded` | `ZeroPadded24Bit` | `Nyquist` |
+| **3** | `knee >= 0.92 * Nyquist` | `VerifiedLossless` | `Nyquist` |
+| **4** | `isSmoothAcousticRollOff` | `AcousticNaturalRollOff` | `Nyquist` |
+| **5** | Sisanya | `Inconclusive` | `knee` |
+
+Catatan tambahan: jika `isZeroPadded && bitsPerSample >= 24` terdeteksi bersamaan dengan vonis spektral prioritas lebih tinggi (misal `UpscaledFromCd`, `UpscaledHiRes`, atau `SuspectedUpscaledLossy`), catatan zero-padding tetap dilampirkan pada teks penjelasan. Semua pesan pada cabang `< 44.1 kHz` mencetak sample rate riil berkas dalam bahasa Indonesia maupun Inggris.
 
 ---
 
@@ -236,11 +251,15 @@ Catatan tambahan: jika `isZeroPadded && bitsPerSample >= 24` terdeteksi bersamaa
 
 ### B. Batasan Fisik Analisis Spektral
 1. **Makna Vonis `VerifiedLossless` dan `AcousticNaturalRollOff`:**
-   * Vonis ini berarti **"tidak ditemukan artefak kompresi lossy maupun upsampling CD"** pada jendela analisis spektrum dan audit LSB. Ini bukan pembuktian kriptografis atas seluruh rantai produksi studio.
-2. **Keterbatasan Deteksi AAC dan Opus Bitrate Tinggi:**
-   * Encoder AAC (`>= 192 kbps`) dan Opus modern (`>= 128 kbps`) dapat mempertahankan energi hingga `20 - 24 kHz` tanpa filter lowpass brickwall tajam. Berkas seperti ini tidak dapat dibedakan dari lossless hanya melalui FFT magnitudo; catatan batasan ini dicantumkan secara eksplisit pada semua vonis `VerifiedLossless`, `AcousticNaturalRollOff`, dan `HybridMaster`.
-3. **Cakupan Waktu Analisis:**
-   * Spektrum utama mengukur `32 x 4096` sampel pada puncak RMS (~3,0 detik @ 44,1 kHz, ~1,4 detik @ 96 kHz, ~0,7 detik @ 192 kHz), ditambah `30` jendela P90 lintas 5 segmen lagu. Anomali lokal yang sangat singkat di luar segmen tersebut mungkin tidak tertangkap.
+   * Vonis ini berarti **"tidak ditemukan artefak kompresi lossy maupun upsampling"** pada jendela analisis spektrum dan audit LSB. Ini bukan pembuktian kriptografis atas seluruh rantai produksi studio.
+2. **Keterbatasan Deteksi Codec Lossy Bitrate Tinggi (`MP3 V0`, `AAC 192–256k`, `Opus 64–192k`, `Vorbis q5`):**
+   * Encoder modern seperti `MP3 V0`, `AAC` (`>= 192 kbps`), `Opus` (`64–192 kbps`, mode *fullband* `20–24 kHz`), dan `Vorbis q5` mempertahankan energi frekuensi atas tanpa filter lowpass brickwall yang curam. Berkas seperti ini tidak dapat dibedakan secara andal dari lossless hanya melalui FFT magnitudo; catatan batasan ini dicantumkan secara eksplisit pada semua vonis `VerifiedLossless`, `AcousticNaturalRollOff`, dan `HybridMaster`.
+3. **Tumpang Tindih `MP3 320 kbps` (~20.1–20.2 kHz) dengan Master Studio Lowpass 20 kHz:**
+   * Filter lowpass `MP3 320 kbps` berada di `~20.1–20.2 kHz`, zona yang identik dengan master studio asli yang di-lowpass pada `20 kHz` saat mastering. Untuk menjamin *zero false-fake* terhadap rekaman asli, berkas di zona `20.0–21.25 kHz` dengan penurunan curam sengaja ditahan sebagai `Inconclusive` (perlu cek manual), bukan langsung divonis palsu.
+4. **Resampling Linear pada Derau Acak Tanpa Korelasi (*Pink Noise*):**
+   * Upsampling interpolasi linear atas sinyal derau acak tak berkorelasi (misalnya *pink noise* murni) menghasilkan korelasi cermin Pearson yang rendah ($r \approx 0.12\text{–}0.17$) karena derau acak tidak memiliki kontur spektral deterministik yang tercermin melintasi `22.05 kHz`.
+5. **Cakupan Waktu Analisis:**
+   * Spektrum utama mengukur `32 x 4096` sampel pada puncak RMS (~3,0 detik @ 44,1 kHz, ~1,4 detik @ 96 kHz, ~0,7 detik @ 192 kHz) atau tersebar di 8 segmen untuk klip `< 10` detik, ditambah `30` jendela P90 lintas 5 segmen lagu. Anomali lokal yang sangat singkat di luar segmen tersebut mungkin tidak tertangkap.
 
 ---
 

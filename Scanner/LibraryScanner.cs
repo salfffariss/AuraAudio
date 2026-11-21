@@ -64,6 +64,7 @@ public class LibraryScanner
         int processedCount = 0;
         int addedCount = 0;
         int skippedCount = 0;
+        int failedCount = 0;
 
         // Pisahkan file yang baru/berubah vs file yang sudah ada (tidak berubah)
         var filesToProcess = new List<string>(totalFound);
@@ -141,15 +142,19 @@ public class LibraryScanner
                             totalFound,
                             currentProcessed,
                             currentAdded,
-                            skippedCount,
+                            Volatile.Read(ref skippedCount),
                             Path.GetFileName(filePath),
-                            stopwatch.Elapsed
+                            stopwatch.Elapsed,
+                            Volatile.Read(ref failedCount)
                         ));
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     Interlocked.Increment(ref processedCount);
+                    Interlocked.Increment(ref skippedCount);
+                    Interlocked.Increment(ref failedCount);
+                    Trace.TraceWarning($"[LibraryScanner] Skipped unreadable audio file '{filePath}': {ex.GetType().Name}: {ex.Message}");
                 }
 
                 await Task.CompletedTask;
@@ -160,7 +165,7 @@ public class LibraryScanner
         }
 
         stopwatch.Stop();
-        var finalReport = new ScanProgress(totalFound, processedCount, addedCount, skippedCount, "Selesai", stopwatch.Elapsed);
+        var finalReport = new ScanProgress(totalFound, processedCount, addedCount, skippedCount, "Selesai", stopwatch.Elapsed, failedCount);
         progress?.Report(finalReport);
 
         return finalReport;

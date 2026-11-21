@@ -1,9 +1,9 @@
 using System;
 using System.IO;
 using AuraAudio.Audio.Dsd;
+using AuraAudio.Audio.Flac;
 using AuraAudio.Core.Models;
 using AuraAudio.Metadata;
-using NAudio.Flac;
 using NAudio.Wave;
 
 namespace AuraAudio.Audio;
@@ -46,7 +46,7 @@ public static class AudioDecoderFactory
         {
             case ".flac":
                 codec = AudioCodec.FLAC;
-                underlyingStream = new FlacReader(filePath);
+                underlyingStream = new SafeFlacWaveStream(filePath);
                 break;
 
             case ".wav":

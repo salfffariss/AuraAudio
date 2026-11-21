@@ -699,6 +699,7 @@ public class SyntheticCorpusTests : IDisposable
             AuthenticityVerdict.HybridMaster,
             AuthenticityVerdict.ZeroPadded24Bit,
             AuthenticityVerdict.UpscaledFromCd,
+            AuthenticityVerdict.UpscaledHiRes,
             AuthenticityVerdict.Dithered16BitUpscale,
             AuthenticityVerdict.SuspectedUpscaledLossy,
             AuthenticityVerdict.StandardLossy,
@@ -775,6 +776,7 @@ public class SyntheticCorpusTests : IDisposable
             {
                 if (r.Verdict is AuthenticityVerdict.SuspectedUpscaledLossy
                               or AuthenticityVerdict.UpscaledFromCd
+                              or AuthenticityVerdict.UpscaledHiRes
                               or AuthenticityVerdict.Dithered16BitUpscale
                               or AuthenticityVerdict.ZeroPadded24Bit)
                 {
@@ -810,7 +812,7 @@ public class SyntheticCorpusTests : IDisposable
         _output.WriteLine("\n=========================================================================================================================");
         _output.WriteLine("                                    2D CONTINGENCY CONFUSION MATRIX (Rows: Expected, Cols: Actual)                      ");
         _output.WriteLine("=========================================================================================================================");
-        string[] shortNames = { "VerLoss", "AcoRoll", "HybMast", "Zero24", "UpsCd", "Dith16", "SuspLoss", "StdLoss", "Inconc" };
+        string[] shortNames = { "VerLoss", "AcoRoll", "HybMast", "Zero24", "UpsCd", "UpsHR", "Dith16", "SuspLoss", "StdLoss", "Inconc" };
 
         string header = string.Format("{0,-12} | ", "Exp \\ Act");
         for (int j = 0; j < n; j++) header += string.Format("{0,8} ", shortNames[j]);
@@ -930,10 +932,6 @@ public class SyntheticCorpusTests : IDisposable
     public void Test_19_Optional_RealCorpus_TelemetryBenchmark()
     {
         string? corpusPath = Environment.GetEnvironmentVariable("AURA_REAL_CORPUS");
-        if (string.IsNullOrWhiteSpace(corpusPath) && Directory.Exists(@"E:\corpus_aura"))
-        {
-            corpusPath = @"E:\corpus_aura";
-        }
 
         Skip.IfNot(!string.IsNullOrWhiteSpace(corpusPath) && Directory.Exists(corpusPath),
             "Environment variable AURA_REAL_CORPUS tidak disetel atau direktori tidak ditemukan. Pengujian dilewati.");
@@ -1880,9 +1878,11 @@ public class SyntheticCorpusTests : IDisposable
     [SkippableFact]
     public void Test_26_Optional_RealMusicLibrary_EmpiricalVerification()
     {
-        Skip.IfNot(Directory.Exists(@"D:\Music"), @"Direktori D:\Music tidak tersedia di mesin ini.");
+        string? musicDir = Environment.GetEnvironmentVariable("AURA_LOCAL_MUSIC_DIR");
+        Skip.IfNot(!string.IsNullOrWhiteSpace(musicDir) && Directory.Exists(musicDir),
+            "Environment variable AURA_LOCAL_MUSIC_DIR tidak disetel atau direktori tidak ditemukan. Pengujian dilewati.");
 
-        var allFlacs = Directory.GetFiles(@"D:\Music", "*.flac", SearchOption.AllDirectories);
+        var allFlacs = Directory.GetFiles(musicDir!, "*.flac", SearchOption.AllDirectories);
         var targetNames = new[]
         {
             "2.06 不協（和）音.flac",
@@ -1933,7 +1933,7 @@ public class SyntheticCorpusTests : IDisposable
             }
         }
 
-        Skip.IfNot(foundAny, @"Tidak ada berkas target benchmark di D:\Music.");
+        Skip.IfNot(foundAny, "Tidak ada berkas target benchmark di AURA_LOCAL_MUSIC_DIR.");
     }
 
     private class MockDsdAudioStream : IAudioStream

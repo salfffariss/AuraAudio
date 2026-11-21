@@ -6,11 +6,16 @@ AuraAudio includes or links against the following third-party open-source compon
 
 | Component | Version | License | Authors / Copyright | Project URL |
 | :--- | :---: | :--- | :--- | :--- |
-| **BunLabs.NAudio.Flac** | `2.0.1` | `MS-PL` (Microsoft Public License) | Vivelin | https://github.com/BunLabs/NAudio.Flac |
 | **Microsoft.Data.Sqlite** | `10.0.13` | `MIT` | Microsoft | https://docs.microsoft.com/dotnet/standard/data/sqlite/ |
 | **NAudio.Wasapi** | `3.1.0` | `MIT` | Mark Heath | https://naudio.github.io/NAudio/ |
 | **System.Drawing.Common** | `10.0.13` | `MIT` | Microsoft | https://github.com/dotnet/winforms |
 | **TagLibSharp** | `2.3.0` | `LGPL-2.1-only` | Brian Nickel, Gabriel Burt, Stephen Shaw, et al. | https://github.com/mono/taglib-sharp |
+
+## Derived In-Tree Source Components
+
+| Component | License | Authors / Copyright | Project URL |
+| :--- | :--- | :--- | :--- |
+| **SimpleFlac** *(basis for `Audio/Flac/SafeFlacDecoder.cs`)* | `MIT` | J.D. Purcell; Project Nayuki | https://github.com/jdpurcell/SimpleFlac · https://www.nayuki.io/page/simple-flac-implementation |
 
 ## Transitive Runtime Dependencies
 
@@ -43,4 +48,30 @@ Not included in published standalone release binaries:
 ## Licensing Notes
 
 - **LGPL-2.1-only (`TagLibSharp`):** `TagLibSharp` is licensed under the GNU Lesser General Public License v2.1 only. Complete buildable source code and build instructions for AuraAudio are provided in this repository so recipients can rebuild and relink AuraAudio against a modified or updated version of `TagLibSharp`.
-- **MS-PL (`BunLabs.NAudio.Flac`):** Distributed portions of `BunLabs.NAudio.Flac` remain subject to the Microsoft Public License (MS-PL), including preservation of all copyright and license notices.
+- **MIT (`SimpleFlac` / Project Nayuki):** `Audio/Flac/SafeFlacDecoder.cs` is derived from `jdpurcell/SimpleFlac` (MIT License) and Project Nayuki's Simple FLAC decoder (MIT License). Verbatim upstream copyright and permission notices (verified from `https://raw.githubusercontent.com/jdpurcell/SimpleFlac/main/LICENSE.txt` and `https://www.nayuki.io/res/simple-flac-implementation/SimpleDecodeFlacToWav.java`):
+
+```text
+License: MIT
+
+Copyright (c) J.D. Purcell (C# port and enhancements)
+Copyright (c) 2017 Project Nayuki (Simple FLAC decoder in Java)
+https://www.nayuki.io/page/simple-flac-implementation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
