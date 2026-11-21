@@ -1,0 +1,46 @@
+{
+  "version": "v2.0.2-phase0-frozen",
+  "policy": "Split strictly by source master so no fake derived from one master appears on both sides. All 11 ground-truth subcategories appear in both DEV and HOLDOUT. Thresholds/heuristics are developed on DEV only; HOLDOUT is evaluated once at the end of Phase B.",
+  "dev_masters": [
+    "ietf96",
+    "elec44",
+    "studio48"
+  ],
+  "holdout_masters": [
+    "piano96",
+    "pink44",
+    "mewkiz192"
+  ],
+  "master_rationale": {
+    "dev": "ietf96 (24/96 Hi-Res), elec44 (16/44.1 loud electronic), studio48 (16/48 studio music) — 100 files covering all 11 subcategories including low-SR, Hi-Res upsample, and quiet/loud dynamic range.",
+    "holdout": "piano96 (24/96 quiet acoustic solo piano), pink44 (16/44.1 broadband pink noise), mewkiz192 (16/192 ultra-Hi-Res + downsamples) — 79 files covering all 11 subcategories with strictly unseen acoustic/broadband/192k masters."
+  },
+  "external_forensic_ground_truth": {
+    "ietf-flac-test-files/subset/01 - blocksize 4096.flac": { "expected": "NOT_FALSE_FAKE", "issue": "FORENSIC #7.3 (short <10s clip with spoken intro + 22kHz music)" },
+    "ietf-flac-test-files/subset/02 - blocksize 4608.flac": { "expected": "NOT_FALSE_FAKE", "issue": "FORENSIC #7.3 (short <10s clip with spoken intro + 22kHz music)" },
+    "ietf-flac-test-files/subset/04 - blocksize 192.flac": { "expected": "NOT_FALSE_FAKE", "issue": "FORENSIC #7.3 (short <10s clip with spoken intro + 20.7kHz music)" },
+    "ietf-flac-test-files/subset/10 - blocksize 2304.flac": { "expected": "NOT_FALSE_FAKE", "issue": "FORENSIC #7.3 (short <10s clip with spoken intro + 20.5kHz music)" },
+    "ietf-flac-test-files/subset/11 - partition order 8.flac": { "expected": "GENUINE_OR_INCONCLUSIVE", "issue": "FORENSIC #7.2 (44.1kHz with steep 21.4kHz filter)" },
+    "ietf-flac-test-files/subset/12 - qlp precision 15 bit.flac": { "expected": "GENUINE_OR_INCONCLUSIVE", "issue": "FORENSIC #7.2" },
+    "ietf-flac-test-files/subset/13 - qlp precision 2 bit.flac": { "expected": "GENUINE_OR_INCONCLUSIVE", "issue": "FORENSIC #7.2" },
+    "ietf-flac-test-files/subset/15 - only verbatim subframes.flac": { "expected": "GENUINE_OR_INCONCLUSIVE", "issue": "FORENSIC #7.2" },
+    "ietf-flac-test-files/subset/16 - partition order 8 containing escaped partitions.flac": { "expected": "GENUINE_OR_INCONCLUSIVE", "issue": "FORENSIC #7.2" },
+    "ietf-flac-test-files/subset/17 - all fixed orders.flac": { "expected": "GENUINE_OR_INCONCLUSIVE", "issue": "FORENSIC #7.2" },
+    "ietf-flac-test-files/subset/18 - precision search.flac": { "expected": "GENUINE_OR_INCONCLUSIVE", "issue": "FORENSIC #7.2" },
+    "ietf-flac-test-files/subset/19 - samplerate 35467Hz.flac": { "expected": "GENUINE_LOW_SR", "issue": "FORENSIC #4 (35.467 kHz genuine lossless)" },
+    "ietf-flac-test-files/subset/20 - samplerate 39kHz.flac": { "expected": "GENUINE_LOW_SR", "issue": "FORENSIC #4 (39 kHz genuine lossless)" },
+    "ietf-flac-test-files/subset/21 - samplerate 22050Hz.flac": { "expected": "GENUINE_LOW_SR", "issue": "FORENSIC #4 (22.05 kHz genuine lossless)" },
+    "ietf-flac-test-files/subset/28 - high resolution audio, default settings.flac": { "expected": "GENUINE", "issue": "FORENSIC #5 (24/96 genuine mislabeled HybridMaster)" },
+    "ietf-flac-test-files/subset/29 - high resolution audio, blocksize 16384.flac": { "expected": "GENUINE", "issue": "FORENSIC #5" },
+    "ietf-flac-test-files/subset/30 - high resolution audio, blocksize 13456.flac": { "expected": "GENUINE", "issue": "FORENSIC #5" },
+    "ietf-flac-test-files/subset/31 - high resolution audio, using only 32nd order predictors.flac": { "expected": "GENUINE", "issue": "FORENSIC #5" },
+    "ietf-flac-test-files/subset/32 - high resolution audio, partition order 8 containing escaped partitions.flac": { "expected": "GENUINE", "issue": "FORENSIC #5" },
+    "ietf-flac-test-files/subset/33 - samplerate 192kHz.flac": { "expected": "FAKE_HIRES_UPSAMPLE", "issue": "FORENSIC #6 (96kHz upsampled to 192kHz per IETF README)" },
+    "ietf-flac-test-files/subset/34 - samplerate 192kHz, using only 32nd order predictors.flac": { "expected": "FAKE_HIRES_UPSAMPLE", "issue": "FORENSIC #6 (96kHz upsampled to 192kHz per IETF README)" },
+    "ietf-flac-test-files/subset/36 - samplerate 384kHz.flac": { "expected": "FAKE_HIRES_UPSAMPLE", "issue": "FORENSIC #6 (96kHz upsampled to 384kHz per IETF README)" },
+    "ietf-flac-test-files/subset/53 - CUESHEET with very many indexes.flac": { "expected": "GENUINE_OR_INCONCLUSIVE", "issue": "48 kHz reference track" },
+    "ietf-flac-test-files/uncommon/01 - changing samplerate.flac": { "expected": "NOT_FALSE_FAKE", "issue": "FORENSIC #4 (starts at 32 kHz, mid-stream SR changes)" },
+    "github_repos/Borewit__music-metadata/test__samples__flac__01. Make It Out Alive.flac": { "expected": "FAKE_LOSSY", "issue": "Rule 5 in-the-wild fake 24-bit FLAC catch (17.16 kHz brickwall to -160 dBFS)" }
+  },
+  "external_default_role": "decoder_gate_only"
+}

@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
-    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;artifacts\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;artifacts\**;tools\**</DefaultItemExcludes>
 
     <!-- Audiophile Windows 11 Desktop Metadata -->
     <AssemblyName>AuraAudio</AssemblyName>
