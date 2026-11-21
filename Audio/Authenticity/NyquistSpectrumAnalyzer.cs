@@ -159,7 +159,7 @@ public static class NyquistSpectrumAnalyzer
     private const double HiResUpsampleMaxEnvUpperBandDbFS = -120.0;
 
     private const string AacOpusCaveatId =
-        "Catatan: berkas AAC/Opus bitrate tinggi tanpa lowpass kaku tidak dapat dibedakan melalui analisis spektrum saja.";
+        "Catatan: berkas lossy bitrate tinggi tanpa lowpass kaku (AAC/Opus, MP3 V0, Vorbis q5) tidak dapat dibedakan melalui analisis spektrum saja.";
 
     // Window Hann precomputed untuk efisiensi instan tanpa alokasi memori berulang
     private static readonly double[] HannWindow = new double[FftSize];

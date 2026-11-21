@@ -455,7 +455,7 @@ public record AudioIntegrityReport
             return "1-bit DSD stream cannot be verified directly from PCM spectral bins without multi-stage decimation.";
         }
 
-        const string aacOpusCaveat = " Note: high-bitrate AAC/Opus without a hard lowpass cannot be distinguished by spectral analysis alone.";
+        const string aacOpusCaveat = " Note: high-bitrate lossy codecs without a hard lowpass (AAC/Opus, MP3 V0, Vorbis q5) cannot be distinguished by spectral analysis alone.";
         uint reachHz = UpperEnvelopeReachHz ?? DetectedCutoffHz;
         double dropVal = DropAcrossKneeDb ?? 0.0;
         double cliffVal = CliffDropDb ?? 0.0;

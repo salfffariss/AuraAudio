@@ -655,6 +655,72 @@ public sealed class ForensicV202RegressionTests : IDisposable
         Assert.Equal(AuthenticityVerdict.Inconclusive, report.Verdict);
     }
 
+    [SkippableFact]
+    public void OptInCorpus_ForensicZeroFalseFakeAndCoreDetectionGates_Hold()
+    {
+        string? corpusRoot = Environment.GetEnvironmentVariable("AURA_BENCHMARK_CORPUS");
+        Skip.If(string.IsNullOrWhiteSpace(corpusRoot) || !Directory.Exists(corpusRoot),
+            "Set AURA_BENCHMARK_CORPUS to run opt-in corpus forensic regression checks.");
+
+        var falseFakeVerdicts = new[]
+        {
+            AuthenticityVerdict.SuspectedUpscaledLossy,
+            AuthenticityVerdict.UpscaledFromCd,
+            AuthenticityVerdict.UpscaledHiRes,
+            AuthenticityVerdict.Dithered16BitUpscale,
+            AuthenticityVerdict.ZeroPadded24Bit,
+            AuthenticityVerdict.StandardLossy
+        };
+
+        // 1. All genuine ground-truth files (01_genuine + 01_genuine_low_sr): 0 false-fakes
+        foreach (string sub in new[] { "01_genuine", "01_genuine_low_sr" })
+        {
+            string dir = Path.Combine(corpusRoot!, "ground_truth_bench", sub);
+            if (!Directory.Exists(dir)) continue;
+            foreach (string file in Directory.EnumerateFiles(dir, "*.flac"))
+            {
+                var r = NyquistSpectrumAnalyzer.Analyze(file);
+                Assert.DoesNotContain(r.Verdict, falseFakeVerdicts);
+            }
+        }
+
+        // 2. All soxr CD upsamples (06_fake_cd_upsample_soxr): 100% UpscaledFromCd
+        string cdUpDir = Path.Combine(corpusRoot!, "ground_truth_bench", "06_fake_cd_upsample_soxr");
+        if (Directory.Exists(cdUpDir))
+        {
+            foreach (string file in Directory.EnumerateFiles(cdUpDir, "*.flac"))
+            {
+                var r = NyquistSpectrumAnalyzer.Analyze(file);
+                Assert.Equal(AuthenticityVerdict.UpscaledFromCd, r.Verdict);
+            }
+        }
+
+        // 3. All Hi-Res-to-Hi-Res upsamples (10_fake_hires_upsample): 100% UpscaledHiRes
+        string hiResUpDir = Path.Combine(corpusRoot!, "ground_truth_bench", "10_fake_hires_upsample");
+        if (Directory.Exists(hiResUpDir))
+        {
+            foreach (string file in Directory.EnumerateFiles(hiResUpDir, "*.flac"))
+            {
+                var r = NyquistSpectrumAnalyzer.Analyze(file);
+                Assert.Equal(AuthenticityVerdict.UpscaledHiRes, r.Verdict);
+            }
+        }
+
+        // 4. IETF subset low-SR (19, 20, 21) and Hi-Res 96k (28-32): VerifiedLossless (0 false-fakes, 0 false HybridMaster)
+        string ietfSubset = Path.Combine(corpusRoot!, "ietf-flac-test-files", "subset");
+        if (Directory.Exists(ietfSubset))
+        {
+            foreach (string prefix in new[] { "19 - ", "20 - ", "21 - ", "28 - ", "29 - ", "30 - ", "31 - ", "32 - " })
+            {
+                foreach (string file in Directory.EnumerateFiles(ietfSubset, prefix + "*.flac"))
+                {
+                    var r = NyquistSpectrumAnalyzer.Analyze(file);
+                    Assert.Equal(AuthenticityVerdict.VerifiedLossless, r.Verdict);
+                }
+            }
+        }
+    }
+
     private static double[] BuildHybridNotchFrequencies(out double[] phases, Random rng)
     {
         var list = new System.Collections.Generic.List<double>();

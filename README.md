@@ -9,7 +9,7 @@ Bit-perfect lossless desktop audio player and Nyquist FFT spectral authenticity 
 - **Local Library Views:** Home shelves (*Recently Added*, *Jump Back In*, *Hi-Res & Lossless Masters*, *Your Artists*), virtualized Songs `DataGrid` with 3-column Column Browser (*Format*, *Artist*, *Album*), virtualized frameless Albums grid, master-detail Artists view, Album & Artist detail views, drag-and-drop Playlists, and dedicated scoped Search.
 - **Full-Screen Stage & Mini-Player:** 5-column Full-Screen playback stage (`Ctrl+Shift+F`) with Centered `<->` Split Lyrics morph, plus an always-on-top Mini-Player (`Ctrl+Shift+M`) with Compact (`350x160`), Album View (`350x350`), and expandable Queue/Lyrics tray.
 - **Synchronized Lyrics & Persistent History:** `.lrc` sidecar, embedded LRC, ID3v2 `SYLT`, and plain-text lyrics with click-to-seek, auto-scroll, and in-app `.lrc` import; persistent local SQLite `play_history` (capped at 500 entries).
-- **Forensic Audio Authenticity Inspector:** Full-page Audio Inspector and tabbed `Get Info` (`Ctrl+I`) sheet combining a 4096-bin per-channel multi-window Nyquist FFT spectrogram (pure monochrome), multi-segment P90 upper-envelope tracking, OLS spectral slope regression, TPDF dither shelf and dead-zero brickwall detection, resampler mirror correlation, and 24-bit LSB Shannon entropy audit.
+- **Forensic Audio Authenticity Inspector:** Full-page Audio Inspector and tabbed `Get Info` (`Ctrl+I`) sheet combining a 4096-bin per-channel multi-window Nyquist FFT spectrogram (pure monochrome), short-clip spread sampling and multi-segment P90 upper-envelope tracking, OLS spectral slope regression, TPDF dither shelf and container-aware dead-zero brickwall detection, Hi-Res-to-Hi-Res Nyquist-boundary upsampling detection (`UpscaledHiRes`), Nyquist-relative low sample-rate analysis (`< 44.1 kHz`), 48 kHz+ resampler mirror correlation, and 24-bit LSB Shannon entropy audit.
 - **Unified Settings & Fluid Motion:** Breadcrumb-driven Settings (*General*, *Playback & DAC*, *Library & Files*, *Accessibility*, *About*) and critically damped `SpringAnimator` motion with Reduced Motion support.
 
 ## Requirements & Installation
@@ -55,7 +55,11 @@ dotnet publish AuraAudio.csproj -c Release -r win-x64 -p:AuraStandalonePublish=t
 
 - `App.xaml` defaults to `Strings.id.xaml`, so top-bar route titles and some status strings render in Indonesian while most v2.x XAML headings render in English until English is selected in `Settings > General`.
 - Secondary/detail views (`AlbumDetailView`, `PlaylistDetailView`, `ArtistDetailView`, `PlaylistsOverviewView`, `SearchView`) render inside outer `ScrollViewer`s without UI virtualization (primary large-library lists are virtualized with `Recycling`).
-- High-bitrate AAC (`>= 192 kbps`) and Opus (`>= 128 kbps`) without a lowpass cutoff cannot be separated from lossless masters by spectral FFT alone; 1-bit DSD files report `Inconclusive` with a representative curve (`IsSyntheticSpectrum = true`).
+- **Forensic Spectral Physical Limits:**
+  - High-bitrate lossy codecs that preserve upper-band energy without a hard lowpass brickwall — including `MP3 V0`, `AAC` (`>= 192 kbps`), `Opus` (`64–192 kbps`, fullband `20–24 kHz`), and `Vorbis q5` — cannot be reliably separated from lossless masters by magnitude-only FFT.
+  - `MP3 320 kbps` cutoffs near `20.1–20.2 kHz` overlap genuine `20 kHz` studio-lowpassed masters and are intentionally held as `Inconclusive` (manual check needed) rather than risking false-fake accusations on authentic recordings.
+  - Linear-interpolated upsampling of uncorrelated broadband random noise (e.g., pure pink noise) yields low Pearson mirror correlation (`r ≈ 0.12–0.17`) because random noise has no deterministic mirror contour across `22.05 kHz`.
+  - 1-bit DSD files report `Inconclusive` with a representative curve (`IsSyntheticSpectrum = true`).
 - See [docs/releases/v2.0.1.md](docs/releases/v2.0.1.md) for the complete verification summary, SoniqTools CC0 benchmark table, and release checksums.
 
 ## Documentation & License
