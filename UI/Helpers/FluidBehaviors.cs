@@ -358,29 +358,16 @@ public static class FluidBehaviors
         }
     }
 
-    private static bool IsInsideThumb(DependencyObject? source)
-    {
-        DependencyObject? current = source;
-        while (current != null)
-        {
-            if (current is Thumb) return true;
-            current = VisualTreeHelper.GetParent(current);
-        }
-        return false;
-    }
+    private static bool IsInsideThumb(DependencyObject? source) =>
+        TreeNavigationHelper.FindAncestor<Thumb>(source) != null;
 
     /// <summary>
     /// Membuka ContextMenu milik ancestor ListBoxItem saat tombol aksi cepat diklik kiri.
     /// </summary>
     public static void OpenAncestorContextMenu(DependencyObject? origin)
     {
-        DependencyObject? current = origin;
-        while (current != null && current is not ListBoxItem)
-        {
-            current = VisualTreeHelper.GetParent(current);
-        }
-
-        if (current is ListBoxItem item && item.ContextMenu != null)
+        var item = TreeNavigationHelper.FindAncestor<ListBoxItem>(origin);
+        if (item != null && item.ContextMenu != null)
         {
             item.IsSelected = true;
             item.Focus();

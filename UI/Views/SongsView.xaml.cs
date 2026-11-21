@@ -104,25 +104,9 @@ public partial class SongsView : UserControl
         }
     }
 
-    private static bool IsInsideButton(DependencyObject? source)
-    {
-        DependencyObject? cur = source;
-        while (cur != null)
-        {
-            if (cur is ButtonBase) return true;
-            cur = VisualTreeHelper.GetParent(cur);
-        }
-        return false;
-    }
+    private static bool IsInsideButton(DependencyObject? source) =>
+        AuraAudio.UI.Helpers.TreeNavigationHelper.FindAncestor<ButtonBase>(source) != null;
 
-    private static T? FindAncestor<T>(DependencyObject? origin) where T : DependencyObject
-    {
-        DependencyObject? cur = origin;
-        while (cur != null)
-        {
-            if (cur is T match) return match;
-            cur = VisualTreeHelper.GetParent(cur);
-        }
-        return null;
-    }
+    private static T? FindAncestor<T>(DependencyObject? origin) where T : DependencyObject =>
+        AuraAudio.UI.Helpers.TreeNavigationHelper.FindAncestor<T>(origin);
 }

@@ -18,6 +18,10 @@ public static class AuraSmokeWin32 {
     public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")]
     public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int X, int Y);
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
     [DllImport("dwmapi.dll", PreserveSig = true)]
     public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
 }
@@ -261,6 +265,37 @@ try {
     if ($root -eq $null) { throw "MainWindow did not restore after closing MiniPlayer" }
     Write-Output "PASS [NowPlaying]: SignalPathFlyout + FullScreen (Centered <-> Split Lyrics) + MiniPlayer round-trip"
 
+    function Click-VisibleText($container, [string]$label) {
+        if ($container -eq $null) { return }
+        $txtCond = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Text
+        )
+        $all = $container.FindAll([System.Windows.Automation.TreeScope]::Descendants, $txtCond)
+        $clicked = 0
+        foreach ($t in $all) {
+            try {
+                if ($t.Current.IsOffscreen) { continue }
+                $r = $t.Current.BoundingRectangle
+                if ($r.Width -lt 12 -or $r.Height -lt 8) { continue }
+                $cx = [int]($r.Left + ($r.Width / 2.0))
+                $cy = [int]($r.Top + ($r.Height / 2.0))
+                [AuraSmokeWin32]::SetCursorPos($cx, $cy) | Out-Null
+                [AuraSmokeWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+                [AuraSmokeWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+                Start-Sleep -Milliseconds 40
+                $proc.Refresh()
+                if ($proc.HasExited) { throw "App crashed when clicking text inside $label ('$($t.Current.Name)')" }
+                $clicked++
+                if ($clicked -ge 3) { break }
+            } catch {
+                $proc.Refresh()
+                if ($proc.HasExited) { throw "App crashed when clicking text inside $label" }
+            }
+        }
+        if ($clicked -eq 0) { throw "No clickable visible Text element found in $label" }
+    }
+
     # 7. Verify Unified Settings (BreadcrumbBar + 5 Categories + Sub-pages)
     Invoke-El (Find-ById "Aura.Nav.Settings") "Nav.Settings"
     Start-Sleep -Milliseconds 350
@@ -268,6 +303,7 @@ try {
     foreach ($cid in @("Aura.Settings.Category.General","Aura.Settings.Category.Playback","Aura.Settings.Category.Library","Aura.Settings.Category.Accessibility","Aura.Settings.Category.About")) {
         if ((Find-ById $cid) -eq $null) { throw "Missing Settings category: $cid" }
     }
+    Click-VisibleText $root "Settings"
     Invoke-El (Find-ById "Aura.Settings.Category.Playback") "Settings.Playback"
     Start-Sleep -Milliseconds 250
     if ((Find-ById "Aura.Settings.Playback.Apply") -eq $null) { throw "Missing Aura.Settings.Playback.Apply" }
@@ -283,26 +319,29 @@ try {
     if ((Find-ById "Aura.Settings.A11y.ReducedMotion") -eq $null) { throw "Missing Aura.Settings.A11y.ReducedMotion" }
     Write-Output "PASS [Settings]: BreadcrumbBar + 5 Categories + Playback/Library/Accessibility drill-down"
 
-    # 8. Verify Full-Page Audio Inspector + Monochrome SpekSpectrumControl
+    # 8. Verify Full-Page Audio Inspector + Monochrome SpekSpectrumControl + Click-on-Text safety
     Invoke-El (Find-ById "Aura.Nav.Inspector") "Nav.Inspector"
     Start-Sleep -Milliseconds 350
     foreach ($iid in @("Aura.Inspector.Spectrum","Aura.Inspector.AnalyzeCurrent","Aura.Inspector.OpenFile")) {
         if ((Find-ById $iid) -eq $null) { throw "Missing Inspector element: $iid" }
     }
-    Write-Output "PASS [Inspector]: InspectorView + Aura.Inspector.Spectrum"
+    Click-VisibleText (Find-ById "Aura.Inspector.Root") "Inspector"
+    Write-Output "PASS [Inspector]: InspectorView + Aura.Inspector.Spectrum + Text Click Safety"
 
-    # 9. Verify 4-Tab Get Info Modal Sheet
+    # 9. Verify 4-Tab Get Info Modal Sheet + Click-on-Text safety (InfoSheet & Lyrics)
     Invoke-El (Find-ById "Aura.Dock.Info") "Dock.Info"
     Start-Sleep -Milliseconds 350
+    $infoSheet = Find-ById "Aura.Info.Sheet"
     foreach ($tid in @("Aura.Info.Tab.Details","Aura.Info.Tab.Audio","Aura.Info.Tab.Authenticity","Aura.Info.Tab.Lyrics")) {
         $tabEl = Find-ById $tid
         if ($tabEl -eq $null) { throw "Missing Info Sheet tab: $tid" }
         Invoke-El $tabEl $tid
         Start-Sleep -Milliseconds 120
+        Click-VisibleText $infoSheet "InfoSheet/$tid"
     }
     Invoke-El (Find-ById "Aura.Info.Close") "Info.Close"
     Start-Sleep -Milliseconds 250
-    Write-Output "PASS [InfoSheet]: 4-Tab Get Info (Details | Audio | Authenticity | Lyrics) + Close"
+    Write-Output "PASS [InfoSheet]: 4-Tab Get Info (Details | Audio | Authenticity | Lyrics) + Text Click Safety + Close"
 
     # 10. Clean Shutdown & Zero Crash Log Verification
     Invoke-El (Find-ById "Aura.TopBar.Close") "TopBar.Close"
