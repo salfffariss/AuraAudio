@@ -477,6 +477,76 @@ public sealed class FlacDecoderSafetyTests : IDisposable
         Assert.Equal(AudioCodec.FLAC, report.SourceSpec.Codec);
     }
 
+    [Fact]
+    public void MidStreamCorruptedFrame_Frame0DecodesCleanlyThenHardStopsWithManagedException()
+    {
+        // Audit 1b (v2.0.2): Generates a 3-frame valid FLAC stream in memory and flips one payload byte
+        // inside Frame 1 to trigger an RFC 9639 CRC-16 mismatch mid-playback.
+        // Verifies exact current playback behavior: Frame 0 plays cleanly, then Frame 1 throws
+        // InvalidDataException through SafeFlacWaveStream -> GaplessStreamQueue -> SilenceAwareWaveProvider
+        // (hard stop in WasapiOut, no process crash, no skip/silence substitution).
+        const int frameSamples = 256;
+        int totalSamples = frameSamples * 3;
+        int[] chL = Enumerable.Range(0, totalSamples).Select(i => (int)(Math.Sin(i * 0.09) * 18_000)).ToArray();
+        int[] chR = Enumerable.Range(0, totalSamples).Select(i => (int)(Math.Cos(i * 0.13) * 16_000)).ToArray();
+
+        byte[] flac = SyntheticFlacBuilder.BuildVerbatimFlac(
+            44_100,
+            16,
+            [chL, chR],
+            [frameSamples, frameSamples, frameSamples]);
+        byte[] expectedFrame0Pcm = SyntheticFlacBuilder.EncodeCanonicalPcm(
+            [chL[..frameSamples], chR[..frameSamples]],
+            16);
+
+        // Locate Frame 1 sync code (0xFF 0xF8) strictly after Frame 0 begins (offset 42)
+        int frame0Offset = 42;
+        Assert.Equal(0xFF, flac[frame0Offset]);
+        Assert.Equal(0xF8, flac[frame0Offset + 1]);
+
+        int frame1Offset = -1;
+        for (int i = frame0Offset + 16; i < flac.Length - 16; i++)
+        {
+            if (flac[i] == 0xFF && flac[i + 1] == 0xF8 && flac[i + 2] == flac[frame0Offset + 2])
+            {
+                frame1Offset = i;
+                break;
+            }
+        }
+        Assert.True(frame1Offset > frame0Offset + 512, $"Could not locate Frame 1 offset in {flac.Length}-byte synthetic FLAC.");
+
+        // Flip one payload byte well inside Frame 1 (preserving Frame 1 header CRC-8 so CRC-16 mismatch fires)
+        byte[] corrupted = (byte[])flac.Clone();
+        corrupted[frame1Offset + 64] ^= 0x55;
+
+        string corruptedPath = Path.Combine(_tempDir, "midstream_crc_corrupt.flac");
+        File.WriteAllBytes(corruptedPath, corrupted);
+
+        // 1. Direct SafeFlacWaveStream check: Frame 0 decodes bit-exact; reading into Frame 1 throws InvalidDataException (CRC-16)
+        using (var ws = new SafeFlacWaveStream(corruptedPath))
+        {
+            byte[] frame0Buf = new byte[expectedFrame0Pcm.Length];
+            int n0 = ws.Read(frame0Buf, 0, frame0Buf.Length);
+            Assert.Equal(expectedFrame0Pcm.Length, n0);
+            Assert.Equal(expectedFrame0Pcm, frame0Buf);
+
+            byte[] frame1Buf = new byte[expectedFrame0Pcm.Length];
+            var ex = Assert.Throws<InvalidDataException>(() => ws.Read(frame1Buf, 0, frame1Buf.Length));
+            Assert.Contains("CRC-16", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // 2. Full playback provider chain (AudioDecoderFactory -> GaplessStreamQueue -> SilenceAwareWaveProvider):
+        //    proves mid-stream corruption propagates cleanly as InvalidDataException to WasapiOut (hard stop, zero crash).
+        using (var audioStream = AudioDecoderFactory.OpenStream(corruptedPath))
+        using (var queue = new GaplessStreamQueue(audioStream))
+        {
+            var provider = new SilenceAwareWaveProvider(queue, 1.0f);
+            byte[] chunk = new byte[expectedFrame0Pcm.Length];
+            Assert.Equal(expectedFrame0Pcm.Length, provider.Read(chunk, 0, chunk.Length));
+            Assert.Throws<InvalidDataException>(() => provider.Read(chunk, 0, chunk.Length));
+        }
+    }
+
     [SkippableFact]
     public void ExternalCorpus_Critical1And2_ZeroCrashes_All64SubsetMd5_Id3v2AndBitDepths()
     {
