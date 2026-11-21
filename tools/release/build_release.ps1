@@ -92,7 +92,7 @@ if ($unexpected.Count -gt 0) {
     throw "Unexpected file(s) in single-file publish folder: $names"
 }
 
-$exeInfo = Get-Item $exePath
+$exeSize = (Get-Item $exePath).Length
 $exeHash = (Get-FileHash -Path $exePath -Algorithm SHA256).Hash
 Write-Host ("  OK: {0} files ({1})" -f $publishedFiles.Count, (($publishedFiles | Select-Object -ExpandProperty Name) -join ", "))
 
@@ -172,6 +172,6 @@ if ($setupInfo -ne $null) {
     Write-Host ("| ``{0}`` | ``{1:N0} bytes`` ({2:N2} MB) | ``{3}`` |" -f $setupName, $setupInfo.Length, ($setupInfo.Length / 1MB), $setupHash)
 }
 Write-Host ("| ``{0}`` | ``{1:N0} bytes`` ({2:N2} MB) | ``{3}`` |" -f $zipName, $zipInfo.Length, ($zipInfo.Length / 1MB), $zipHash)
-Write-Host ("| ``AuraAudio.exe`` (inside zip) | ``{0:N0} bytes`` ({1:N2} MB) | ``{2}`` |" -f $exeInfo.Length, ($exeInfo.Length / 1MB), $exeHash)
+Write-Host ("| ``AuraAudio.exe`` (inside zip) | ``{0:N0} bytes`` ({1:N2} MB) | ``{2}`` |" -f $exeSize, ($exeSize / 1MB), $exeHash)
 Write-Host ""
 Write-Host "Output folder: $releaseDir" -ForegroundColor Green
