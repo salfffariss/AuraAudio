@@ -131,6 +131,12 @@ public static class NyquistSpectrumAnalyzer
     private const double LowSrLossyMaxNyquistRatio = 0.85;
     private const uint LowSrMinSampleRateForLossyFlagHz = 22_050;
 
+    // Multi-segment consistency guard (FORENSIC #7.3): prevents condemning mixed spoken+music clips as lossy
+    // when the P90 multi-segment envelope proves sustained full-band energy >= 2.5 kHz above the detected cutoff.
+    // DEV max (envReach - knee) across all true lossy fakes = +302 Hz; mixed clips = +10,519 Hz (gap > 10 kHz).
+    private const uint LossyEnvelopeContradictionMinGapHz = 2_500;
+    private const double LossyEnvelopeFullBandMinRatio = 0.90;
+
     private const string AacOpusCaveatId =
         "Catatan: berkas AAC/Opus bitrate tinggi tanpa lowpass kaku tidak dapat dibedakan melalui analisis spektrum saja.";
 
@@ -367,7 +373,11 @@ public static class NyquistSpectrumAnalyzer
         double reportedPositionPct = seekSucceeded ? Math.Round(loudestFraction * 100.0, 1) : 0.0;
 
         // 5. Uji Spektrum Frekuensi FFT Multi-Window + Amplop Persentil Lintas Lagu
-        double[] avgPower = ComputeAveragePowerSpectrum(stream, FftSize, DefaultWindowsToAverage, cancellationToken, lsbOffset);
+        // FORENSIC #7.3: For short clips (< 10 s), spread the 32 FFT windows evenly across the entire clip
+        // (or scan the whole clip sequentially when <= 32 windows) instead of sampling only one static 30% point.
+        double[] avgPower = stream.TotalTime.TotalSeconds < 10.0
+            ? ComputeSpreadShortClipPowerSpectrum(stream, FftSize, DefaultWindowsToAverage, cancellationToken, lsbOffset)
+            : ComputeAveragePowerSpectrum(stream, FftSize, DefaultWindowsToAverage, cancellationToken, lsbOffset);
         double binResolution = (double)sampleRate / FftSize;
         var (envPower, upperEnvelopeReachHz) = ComputeMultiSegmentUpperEnvelope(stream, avgPower, FftSize, binResolution, nyquistLimitHz, cancellationToken, lsbOffset);
 
@@ -764,6 +774,18 @@ public static class NyquistSpectrumAnalyzer
             }
         }
 
+        // FORENSIC #7.3: Multi-segment consistency guard. A genuine lossy codec enforces its lowpass across the entire track;
+        // if the P90 multi-segment upper envelope proves sustained full-band energy >= 2.5 kHz above the detected cutoff,
+        // do not issue a SuspectedUpscaledLossy accusation from a locally band-limited segment (e.g. spoken intro + music).
+        uint envelopeFullBandFloorHz = (uint)Math.Round(Math.Min(nyquistLimitHz, CdNyquistHz) * LossyEnvelopeFullBandMinRatio);
+        if (verdict == AuthenticityVerdict.SuspectedUpscaledLossy &&
+            upperEnvelopeReachHz >= detectedCutoffHz + LossyEnvelopeContradictionMinGapHz &&
+            upperEnvelopeReachHz >= envelopeFullBandFloorHz)
+        {
+            verdict = AuthenticityVerdict.Inconclusive;
+            explanation = $"Perlu cek manual: rata-rata spektrum turun di ~{detectedCutoffHz / 1000.0:F1} kHz, namun amplop multi-segmen (P90) mendeteksi energi aktif hingga ~{upperEnvelopeReachHz / 1000.0:F1} kHz di bagian lain berkas.";
+        }
+
         if (isZeroPadded && bitsPerSample >= 24 && verdict != AuthenticityVerdict.ZeroPadded24Bit &&
             !explanation.Contains("zero-padding", StringComparison.OrdinalIgnoreCase))
         {
@@ -923,12 +945,14 @@ public static class NyquistSpectrumAnalyzer
     private static (TimeSpan Time, double Fraction, bool SeekSucceeded) FindLoudestSectionTime(IAudioStream stream, CancellationToken ct)
     {
         double totalSeconds = stream.TotalTime.TotalSeconds;
-        if (totalSeconds < 10.0)
+        if (totalSeconds < 2.0)
         {
-            return (TimeSpan.FromSeconds(Math.Max(0.0, totalSeconds * 0.30)), 0.30, true);
+            return (TimeSpan.Zero, 0.0, true);
         }
 
-        double[] candidateFractions = [0.20, 0.35, 0.50, 0.65, 0.80];
+        double[] candidateFractions = totalSeconds >= 10.0
+            ? [0.20, 0.35, 0.50, 0.65, 0.80]
+            : [0.12, 0.30, 0.50, 0.70, 0.85];
         double bestFrac = 0.40;
         double bestTimeSec = totalSeconds * 0.40;
         double maxRms = -1.0;
@@ -1265,6 +1289,106 @@ public static class NyquistSpectrumAnalyzer
             {
                 avgPower[b] /= windowsProcessed;
             }
+        }
+
+        return avgPower;
+    }
+
+    /// <summary>
+    /// FORENSIC #7.3: Analyzes short clips (&lt; 10 s) by distributing <paramref name="totalWindows"/> FFT windows
+    /// evenly across the entire clip (or scanning sequentially when the clip fits within <paramref name="totalWindows"/>),
+    /// preventing a band-limited spoken intro from dominating a single static timestamp while keeping runtime strictly bounded.
+    /// </summary>
+    private static double[] ComputeSpreadShortClipPowerSpectrum(
+        IAudioStream stream,
+        int fftSize,
+        int totalWindows,
+        CancellationToken ct,
+        int lsbOffset = 0)
+    {
+        int blockAlign = Math.Max(1, stream.WaveFormat.BlockAlign);
+        long totalFrames = stream.Length / blockAlign;
+        long totalRequiredFrames = (long)fftSize * totalWindows;
+
+        // If the entire clip fits within totalWindows FFT frames, read sequentially from 0
+        if (totalFrames <= totalRequiredFrames)
+        {
+            try { stream.Position = 0; } catch { }
+            return ComputeAveragePowerSpectrum(stream, fftSize, totalWindows, ct, lsbOffset);
+        }
+
+        const int segmentCount = 8;
+        int windowsPerSegment = Math.Max(1, totalWindows / segmentCount);
+        long segmentFrames = (long)fftSize * windowsPerSegment;
+        long maxStartFrame = Math.Max(0, totalFrames - segmentFrames);
+
+        double[] avgPower = new double[fftSize / 2];
+        int bitsPerSample = stream.WaveFormat.BitsPerSample;
+        int channels = Math.Max(1, stream.WaveFormat.Channels);
+        int bytesPerSample = channels > 0 ? blockAlign / channels : 2;
+        WaveFormatEncoding encoding = stream.WaveFormat.Encoding;
+
+        byte[] buffer = new byte[fftSize * blockAlign];
+        Complex[] fftIn = new Complex[fftSize];
+        int windowsProcessed = 0;
+        double chWeight = 1.0 / channels;
+
+        for (int seg = 0; seg < segmentCount; seg++)
+        {
+            ct.ThrowIfCancellationRequested();
+            double frac = segmentCount > 1 ? (double)seg / (segmentCount - 1) : 0.0;
+            long targetFrame = (long)Math.Round(frac * maxStartFrame);
+            long targetByte = targetFrame * blockAlign;
+            try
+            {
+                stream.Position = targetByte;
+            }
+            catch
+            {
+                if (seg == 0)
+                {
+                    return ComputeAveragePowerSpectrum(stream, fftSize, totalWindows, ct, lsbOffset);
+                }
+                break;
+            }
+
+            for (int w = 0; w < windowsPerSegment; w++)
+            {
+                ct.ThrowIfCancellationRequested();
+                int read = stream.Read(buffer, 0, buffer.Length);
+                if (read < buffer.Length) break;
+
+                for (int ch = 0; ch < channels; ch++)
+                {
+                    for (int i = 0; i < fftSize; i++)
+                    {
+                        int frameOff = i * blockAlign;
+                        double sample = ExtractSampleNorm(buffer, frameOff + ch * bytesPerSample, bitsPerSample, bytesPerSample, encoding, lsbOffset);
+                        fftIn[i] = new Complex(sample * HannWindow[i], 0);
+                    }
+
+                    ComputeFftInPlace(fftIn);
+
+                    for (int b = 0; b < fftSize / 2; b++)
+                    {
+                        double mag = fftIn[b].Magnitude / (fftSize / 2.0);
+                        avgPower[b] += (mag * mag) * chWeight;
+                    }
+                }
+
+                windowsProcessed++;
+            }
+        }
+
+        if (windowsProcessed == 0)
+        {
+            try { stream.Position = 0; } catch { }
+            return ComputeAveragePowerSpectrum(stream, fftSize, totalWindows, ct, lsbOffset);
+        }
+
+        for (int b = 0; b < fftSize / 2; b++)
+        {
+            avgPower[b] /= windowsProcessed;
         }
 
         return avgPower;

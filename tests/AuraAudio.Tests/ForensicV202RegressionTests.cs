@@ -272,6 +272,128 @@ public sealed class ForensicV202RegressionTests : IDisposable
         Assert.NotEqual(AuthenticityVerdict.VerifiedLossless, brickwallReport.Verdict);
     }
 
+    [Fact]
+    public void Forensic7_3_ShortClipWithBandLimitedSpokenIntroAndFullBandMusic_IsNotFalseFake()
+    {
+        // Reproduces IETF subset/01, 02, 04, 10: 7.0 s clip at 16/44.1 where 0..3.5 s (covering the old static 30% = 2.1 s mark)
+        // is band-limited to 10.5 kHz (spoken intro), and 3.5..7.0 s is genuine full-band 21.6 kHz music.
+        string path = Path.Combine(_tempDir, "short_clip_intro_plus_music.wav");
+        const int sr = 44_100;
+        int halfSamples = (int)(sr * 3.5);
+        var rng = new Random(7301);
+
+        var introFreqs = new System.Collections.Generic.List<double>();
+        for (double f = 300.0; f <= 10_500.0; f += 200.0) introFreqs.Add(f);
+        var musicFreqs = new System.Collections.Generic.List<double>();
+        for (double f = 300.0; f <= 21_600.0; f += 200.0) musicFreqs.Add(f);
+
+        double[] introPh = new double[introFreqs.Count];
+        for (int k = 0; k < introPh.Length; k++) introPh[k] = rng.NextDouble() * 2.0 * Math.PI;
+        double[] musicPh = new double[musicFreqs.Count];
+        for (int k = 0; k < musicPh.Length; k++) musicPh[k] = rng.NextDouble() * 2.0 * Math.PI;
+
+        var wf = new WaveFormat(sr, 16, 2);
+        using (var writer = new WaveFileWriter(path, wf))
+        {
+            byte[] buf = new byte[2];
+            double introScale = 0.22 / Math.Sqrt(introFreqs.Count);
+            double musicScale = 0.22 / Math.Sqrt(musicFreqs.Count);
+
+            for (int i = 0; i < halfSamples; i++)
+            {
+                double t = (double)i / sr;
+                double sum = 0.0;
+                for (int k = 0; k < introFreqs.Count; k++) sum += Math.Sin(2.0 * Math.PI * introFreqs[k] * t + introPh[k]);
+                double v = Math.Clamp(sum * introScale, -0.95, 0.95);
+                WritePcmSample(writer, v, 16, buf);
+                WritePcmSample(writer, v, 16, buf);
+            }
+
+            for (int i = 0; i < halfSamples; i++)
+            {
+                double t = (double)i / sr;
+                double sum = 0.0;
+                for (int k = 0; k < musicFreqs.Count; k++) sum += Math.Sin(2.0 * Math.PI * musicFreqs[k] * t + musicPh[k]);
+                double v = Math.Clamp(sum * musicScale, -0.95, 0.95);
+                WritePcmSample(writer, v, 16, buf);
+                WritePcmSample(writer, v, 16, buf);
+            }
+        }
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.NotEqual(AuthenticityVerdict.SuspectedUpscaledLossy, report.Verdict);
+        Assert.Equal(AuthenticityVerdict.VerifiedLossless, report.Verdict);
+    }
+
+    [Fact]
+    public void Forensic7_3_ShortClipMostlySpokenIntroWithBriefFullBandBurst_DowngradesToNotFalseFake()
+    {
+        // 7.0 s clip where 80% is loud 10.5 kHz band-limited speech and only 20% has quiet full-band 21.6 kHz energy:
+        // P90 multi-segment envelope detects 21.6 kHz, preventing a false SuspectedUpscaledLossy accusation.
+        string path = Path.Combine(_tempDir, "short_clip_mostly_intro_brief_burst.wav");
+        const int sr = 44_100;
+        int introSamples = (int)(sr * 5.6);
+        int burstSamples = (int)(sr * 1.4);
+        var rng = new Random(7302);
+
+        var introFreqs = new System.Collections.Generic.List<double>();
+        for (double f = 300.0; f <= 10_500.0; f += 200.0) introFreqs.Add(f);
+        var musicFreqs = new System.Collections.Generic.List<double>();
+        for (double f = 300.0; f <= 21_600.0; f += 200.0) musicFreqs.Add(f);
+
+        double[] introPh = new double[introFreqs.Count];
+        for (int k = 0; k < introPh.Length; k++) introPh[k] = rng.NextDouble() * 2.0 * Math.PI;
+        double[] musicPh = new double[musicFreqs.Count];
+        for (int k = 0; k < musicPh.Length; k++) musicPh[k] = rng.NextDouble() * 2.0 * Math.PI;
+
+        var wf = new WaveFormat(sr, 16, 2);
+        using (var writer = new WaveFileWriter(path, wf))
+        {
+            byte[] buf = new byte[2];
+            double introScale = 0.28 / Math.Sqrt(introFreqs.Count);
+            double musicScale = 0.08 / Math.Sqrt(musicFreqs.Count);
+
+            for (int i = 0; i < introSamples; i++)
+            {
+                double t = (double)i / sr;
+                double sum = 0.0;
+                for (int k = 0; k < introFreqs.Count; k++) sum += Math.Sin(2.0 * Math.PI * introFreqs[k] * t + introPh[k]);
+                double v = Math.Clamp(sum * introScale, -0.95, 0.95);
+                WritePcmSample(writer, v, 16, buf);
+                WritePcmSample(writer, v, 16, buf);
+            }
+
+            for (int i = 0; i < burstSamples; i++)
+            {
+                double t = (double)i / sr;
+                double sum = 0.0;
+                for (int k = 0; k < musicFreqs.Count; k++) sum += Math.Sin(2.0 * Math.PI * musicFreqs[k] * t + musicPh[k]);
+                double v = Math.Clamp(sum * musicScale, -0.95, 0.95);
+                WritePcmSample(writer, v, 16, buf);
+                WritePcmSample(writer, v, 16, buf);
+            }
+        }
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.NotEqual(AuthenticityVerdict.SuspectedUpscaledLossy, report.Verdict);
+    }
+
+    [Fact]
+    public void Forensic7_3_ShortClipConsistentLossyBrickwall_StillFlaggedAsLossy()
+    {
+        // A real 6.0 s MP3-like transcode brickwalled at 16.0 kHz throughout must still be caught cleanly.
+        string path = WriteBroadbandSineBankWav(
+            "short_clip_fake_16k.wav",
+            sampleRate: 44_100,
+            bitsPerSample: 16,
+            durationSeconds: 6.0,
+            maxFreqHz: 16_000.0,
+            amplitudeScale: 0.65);
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.Equal(AuthenticityVerdict.SuspectedUpscaledLossy, report.Verdict);
+    }
+
     private static double[] BuildHybridNotchFrequencies(out double[] phases, Random rng)
     {
         var list = new System.Collections.Generic.List<double>();
