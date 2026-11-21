@@ -4,6 +4,17 @@ All notable changes to AuraAudio are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - Unreleased
+
+### Added
+- **Windows Setup Wizard (`installer/AuraAudio.iss`):** Added an Inno Setup 6 installer generating `AuraAudio-v<version>-Setup-win-x64.exe` with per-user install by default (`%LocalAppData%\Programs\AuraAudio`, no UAC) plus optional all-users install (`C:\Program Files\AuraAudio`), Start Menu and Desktop shortcuts, official Windows Installed Apps uninstaller, `App Paths` (`Win+R` → `auraaudio`), and in-place upgrade support preserving `library.db`.
+- **Unified release packager & GitHub Actions workflow (`tools/release/build_release.ps1`, `.github/workflows/release.yml`):** Automated single-folder staging (`artifacts\publish\staging`, preventing folder buildup), publish-hygiene checks, portable ZIP + Setup EXE + `.sha256` generation, and tag-triggered GitHub Release publishing.
+- **Centralized runtime storage paths (`Core/AppDataPaths.cs`, `tests/AuraAudio.Tests/AppDataPathsTests.cs`):** Unified SQLite database, thumbnail disk cache (`%LocalAppData%\AuraAudio\Cache\Thumbnails`), and crash/startup logs (`%LocalAppData%\AuraAudio\Logs`) with `AURA_DATA_DIR` override support and automated read-only install-directory verification.
+
+### Changed
+- **Read-only install-directory safety (`DatabaseManager.cs`, `ThumbnailCacheManager.cs`, `CoverArtLoader.cs`, `App.xaml.cs`, `MainViewModel.cs`):** Moved disk thumbnail cache and diagnostic logs out of the executable directory into `%LocalAppData%\AuraAudio\`, allowing AuraAudio to run cleanly from read-only folders such as `C:\Program Files\AuraAudio`.
+- **Dynamic smoke-test version & install-dir checks (`tests/ui/smoke_ui.ps1`):** Reads target version directly from `AuraAudio.csproj` and asserts zero log or `Cache/` writes inside the executable directory.
+
 ## [2.0.2] - 2026-11-21
 
 ### Added

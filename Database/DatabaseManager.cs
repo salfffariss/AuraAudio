@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using AuraAudio.Core;
 using AuraAudio.Core.Models;
 using Microsoft.Data.Sqlite;
 
@@ -26,7 +27,12 @@ public class DatabaseManager : IDisposable
 
     public DatabaseManager(string? customDbPath = null)
     {
-        DatabasePath = customDbPath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "aura_library.db");
+        DatabasePath = customDbPath ?? AppDataPaths.LibraryDatabasePath;
+        string? parentDir = Path.GetDirectoryName(DatabasePath);
+        if (!string.IsNullOrWhiteSpace(parentDir))
+        {
+            Directory.CreateDirectory(parentDir);
+        }
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = DatabasePath,

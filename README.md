@@ -1,4 +1,4 @@
-# AuraAudio (v2.0.2)
+# AuraAudio (v2.0.3)
 
 Bit-perfect lossless desktop audio player and Nyquist FFT spectral authenticity inspector for Windows 10 and 11, built with .NET 9 and WPF in a strict pure-monochrome design system.
 
@@ -15,12 +15,13 @@ Bit-perfect lossless desktop audio player and Nyquist FFT spectral authenticity 
 ## Requirements & Installation
 
 - **Operating System:** Windows 10 (build 19041+) or Windows 11, **64-bit (`win-x64`)**.
-- **Standalone Release (Recommended):** Download `AuraAudio-v2.0.2-win-x64-standalone.zip` from the Releases page, extract it to any folder, and run `AuraAudio.exe`. No separate .NET runtime installation is required.
+- **Windows Setup Wizard (Recommended):** Download `AuraAudio-v2.0.3-Setup-win-x64.exe` from the Releases page and run the installer. Installs per-user by default (`%LocalAppData%\Programs\AuraAudio`, no UAC prompt) with optional all-users install (`C:\Program Files\AuraAudio`), Start Menu & Desktop shortcuts, Windows Installed Apps registration, and `Win+R` → `auraaudio` support. No separate .NET runtime installation is required.
+- **Portable Standalone ZIP:** Download `AuraAudio-v2.0.3-win-x64-standalone.zip`, extract it to any folder, and run `AuraAudio.exe`. User library, thumbnails, and logs are stored under `%LocalAppData%\AuraAudio\`.
 - **Audio Hardware:** Any Windows audio endpoint (WASAPI Exclusive DAC recommended; automatic WASAPI Shared fallback supported).
 
 ## Build & Test From Source
 
-Requires the [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) on Windows x64.
+Requires the [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) on Windows x64 (plus [Inno Setup 6](https://jrsoftware.org/isinfo.php) via `winget install JRSoftware.InnoSetup` to compile the Windows Setup wizard).
 
 ```powershell
 # 1. Build Release
@@ -35,8 +36,8 @@ dotnet run --project AuraAudio.csproj -c Release
 # 4. Run end-to-end UI Automation smoke test (after Release build)
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/ui/smoke_ui.ps1
 
-# 5. Publish self-contained win-x64 single-file executable
-dotnet publish AuraAudio.csproj -c Release -r win-x64 -p:AuraStandalonePublish=true -o ./artifacts/publish/publish_v2_0_2
+# 5. Build Windows Setup Wizard EXE + Portable ZIP + SHA-256 checksums
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/build_release.ps1
 ```
 
 ## Project Architecture
@@ -48,9 +49,11 @@ dotnet publish AuraAudio.csproj -c Release -r win-x64 -p:AuraStandalonePublish=t
 - `Scanner/`: High-throughput local `LibraryScanner` (skips and logs unreadable files without aborting scans).
 - `UI/`: Pure-monochrome tokens (`UI/Tokens/`), control templates (`UI/Styles/`), custom controls (`UI/Controls/`), views & modal sheets (`UI/Views/`), ViewModels (`UI/ViewModels/`), windows (`MainWindow`, `MiniPlayerWindow`), and helpers (`SpringAnimator`, `FluidBehaviors`, `DwmBackdropHelper`).
 - `Assets/`: Pure-monochrome multi-resolution application icons (`AuraAudio.ico`, `AuraAudio.png`).
+- `installer/`: Inno Setup 6 Windows Setup Wizard script (`AuraAudio.iss`).
+- `.github/workflows/`: Automated Windows release build & GitHub Release publishing (`release.yml`).
 - `docs/`: Forensic DSP documentation (`METODE_ANALISIS_KEASLIAN_AUDIO.md`) and versioned release notes (`docs/releases/`).
 - `tests/`: xUnit + STA test suite (`tests/AuraAudio.Tests/`) and UIA smoke test (`tests/ui/smoke_ui.ps1`).
-- `tools/`: Crash-isolated FLAC & forensic benchmark harness (`tools/benchmark/`, excluded from application builds and published binaries).
+- `tools/`: Crash-isolated FLAC & forensic benchmark harness (`tools/benchmark/`) and unified release packager (`tools/release/build_release.ps1`), excluded from application builds and published binaries.
 
 ## Known Limitations
 

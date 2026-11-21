@@ -1,7 +1,7 @@
-﻿# AuraAudio v2.0.2 - End-to-End Pure-Monochrome UIA Smoke Test
-# Validates every v2.0.2 shell surface, DWM neutral attributes, rail/right-pane/FullScreen/MiniPlayer
+﻿# AuraAudio - End-to-End Pure-Monochrome UIA Smoke Test
+# Validates every shell surface, DWM neutral attributes, rail/right-pane/FullScreen/MiniPlayer
 # modes, SearchHints + 5 scopes, Settings BreadcrumbBar + categories, Inspector FFT canvas,
-# 4-tab Get Info sheet, and clean zero-crash shutdown via language-independent AutomationIds (Part D.9).
+# 4-tab Get Info sheet, read-only install-dir hygiene, and clean zero-crash shutdown.
 
 param(
     [string]$ExePath = ""
@@ -28,14 +28,23 @@ public static class AuraSmokeWin32 {
 "@
 
 $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+[xml]$csprojXml = Get-Content -Path (Join-Path $repoRoot "AuraAudio.csproj") -Raw
+$expectedVersion = ($csprojXml.Project.PropertyGroup.Version | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1).Trim()
+$expectedVerTag = "v$expectedVersion"
+
 $exePath = if ([string]::IsNullOrWhiteSpace($ExePath)) {
     Join-Path $repoRoot "bin\Release\net9.0-windows10.0.19041.0\AuraAudio.exe"
 } else {
     $ExePath
 }
 $dirPath = Split-Path $exePath
-$crashLog = Join-Path $dirPath "aura_crash.log"
-$startupLog = Join-Path $dirPath "aura_startup_error.log"
+$localAppLogs = Join-Path $env:LOCALAPPDATA "AuraAudio\Logs"
+$crashLog = Join-Path $localAppLogs "aura_crash.log"
+$startupLog = Join-Path $localAppLogs "aura_startup_error.log"
+$legacyCrashLog = Join-Path $dirPath "aura_crash.log"
+$legacyStartupLog = Join-Path $dirPath "aura_startup_error.log"
+$installCacheDir = Join-Path $dirPath "Cache"
+$hadInstallCacheBefore = Test-Path $installCacheDir
 
 if (-not (Test-Path $exePath)) {
     Write-Error "Target binary not found at: $exePath. Build or publish Release first."
@@ -46,8 +55,9 @@ Write-Output "Target Exe: $exePath"
 Get-Process -Name "AuraAudio" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 300
 
-if (Test-Path $crashLog) { Remove-Item $crashLog -Force }
-if (Test-Path $startupLog) { Remove-Item $startupLog -Force }
+foreach ($logPath in @($crashLog, $startupLog, $legacyCrashLog, $legacyStartupLog)) {
+    if (Test-Path $logPath) { Remove-Item $logPath -Force }
+}
 
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = $exePath
@@ -89,10 +99,10 @@ try {
 
     $rect = $root.Current.BoundingRectangle
     Write-Output ("Window: Title='{0}', Rect={1}x{2}" -f $root.Current.Name, [int]$rect.Width, [int]$rect.Height)
-    if ($root.Current.Name -notlike "*v2.0.2*") {
-        throw "Expected MainWindow title to include 'v2.0.2', got '$($root.Current.Name)'"
+    if ($root.Current.Name -notlike "*$expectedVerTag*") {
+        throw "Expected MainWindow title to include '$expectedVerTag', got '$($root.Current.Name)'"
     }
-    Write-Output "PASS [Version]: MainWindow title displays v2.0.2"
+    Write-Output "PASS [Version]: MainWindow title displays $expectedVerTag"
 
     # 1. Verify Windows 11 DWM pure-neutral chrome attributes (DarkMode == 1, SystemBackdrop == 1 None)
     $darkAttr = 0
@@ -386,15 +396,27 @@ try {
         throw "App did not exit cleanly within 6s after clicking Aura.TopBar.Close."
     }
 
-    $crashExists = Test-Path $crashLog
-    $startupExists = Test-Path $startupLog
-    Write-Output ("PASS [Shutdown]: ExitedCleanly={0}, ExitCode={1}, CrashLog={2}, StartupErrLog={3}" -f $proc.HasExited, $proc.ExitCode, $crashExists, $startupExists)
+    $crashExists = (Test-Path $crashLog) -or (Test-Path $legacyCrashLog)
+    $startupExists = (Test-Path $startupLog) -or (Test-Path $legacyStartupLog)
+    $createdInstallCache = (-not $hadInstallCacheBefore) -and (Test-Path $installCacheDir)
+    Write-Output ("PASS [Shutdown]: ExitedCleanly={0}, ExitCode={1}, CrashLog={2}, StartupErrLog={3}, InstallDirClean={4}" -f $proc.HasExited, $proc.ExitCode, $crashExists, $startupExists, (-not $createdInstallCache))
 
     if ($proc.ExitCode -ne 0) { throw "Non-zero exit code: $($proc.ExitCode)" }
-    if ($crashExists) { Get-Content $crashLog; throw "Crash log detected!" }
-    if ($startupExists) { Get-Content $startupLog; throw "Startup error log detected!" }
+    if ($crashExists) {
+        if (Test-Path $crashLog) { Get-Content $crashLog }
+        if (Test-Path $legacyCrashLog) { Get-Content $legacyCrashLog }
+        throw "Crash log detected!"
+    }
+    if ($startupExists) {
+        if (Test-Path $startupLog) { Get-Content $startupLog }
+        if (Test-Path $legacyStartupLog) { Get-Content $legacyStartupLog }
+        throw "Startup error log detected!"
+    }
+    if ($createdInstallCache) {
+        throw "Unexpected Cache directory created inside install directory: $installCacheDir"
+    }
 
-    Write-Output "SMOKE TEST PASSED (v2.0.2 - ALL CHECKS GREEN)"
+    Write-Output "SMOKE TEST PASSED ($expectedVerTag - ALL CHECKS GREEN)"
 }
 finally {
     if ($proc -ne $null -and -not $proc.HasExited) {

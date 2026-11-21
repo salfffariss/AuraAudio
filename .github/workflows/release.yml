@@ -1,0 +1,118 @@
+name: Build & Publish Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Run build & installer verification only (no GitHub Release on manual dispatch)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Resolve version and validate tag match
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$csproj = Get-Content -Path "AuraAudio.csproj" -Raw
+          $ver = ($csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1).Trim()
+          if ([string]::IsNullOrWhiteSpace($ver)) { throw "Could not read <Version> from AuraAudio.csproj" }
+          "version=$ver" >> $env:GITHUB_OUTPUT
+          "tag=v$ver" >> $env:GITHUB_OUTPUT
+          Write-Host "Project version: $ver"
+
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            if ($env:GITHUB_REF_NAME -ne "v$ver") {
+              throw "Tag '$($env:GITHUB_REF_NAME)' does not match AuraAudio.csproj <Version> ('$ver')."
+            }
+          }
+
+      - name: Build Release (0 warnings required)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet build AuraAudio.csproj -c Release -warnaserror
+          dotnet build tests\AuraAudio.Tests\AuraAudio.Tests.csproj -c Release -warnaserror
+          dotnet build tools\benchmark\AuraAudio.BenchmarkWorker\AuraAudio.BenchmarkWorker.csproj -c Release -warnaserror
+
+      - name: Run headless-safe Release unit tests
+        shell: pwsh
+        env:
+          AURA_AUDIO_NULL_OUTPUT: '1'
+        run: |
+          dotnet test tests\AuraAudio.Tests\AuraAudio.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~RuntimePixelPurityTests&FullyQualifiedName!~MotionAuditDiagnosticsTests&FullyQualifiedName!~MotionContinuityInvariantTests&FullyQualifiedName!~Stage5KeyboardAndSheetTests&FullyQualifiedName!~Stage6MotionTests&FullyQualifiedName!~UiScrollAndFocusTests&FullyQualifiedName!~PostStage6ReviewFixesTests"
+
+      - name: Ensure Inno Setup 6 is installed
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+          if (-not $iscc -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe") -and -not (Test-Path "${env:ProgramFiles}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Build Windows Setup Wizard EXE & Portable ZIP
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\release\build_release.ps1 -Version "${{ steps.version.outputs.version }}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AuraAudio-v${{ steps.version.outputs.version }}-win-x64
+          path: |
+            artifacts/releases/AuraAudio-v${{ steps.version.outputs.version }}-Setup-win-x64.exe
+            artifacts/releases/AuraAudio-v${{ steps.version.outputs.version }}-Setup-win-x64.exe.sha256
+            artifacts/releases/AuraAudio-v${{ steps.version.outputs.version }}-win-x64-standalone.zip
+            artifacts/releases/AuraAudio-v${{ steps.version.outputs.version }}-win-x64-standalone.zip.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub Release (on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = "${{ steps.version.outputs.version }}"
+          $tag = "${{ steps.version.outputs.tag }}"
+          $setup = "artifacts/releases/AuraAudio-v$ver-Setup-win-x64.exe"
+          $setupSha = "$setup.sha256"
+          $zip = "artifacts/releases/AuraAudio-v$ver-win-x64-standalone.zip"
+          $zipSha = "$zip.sha256"
+          $notesFile = "docs/releases/$tag.md"
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            if (Test-Path $notesFile) {
+              gh release edit $tag --notes-file $notesFile
+              if ($LASTEXITCODE -ne 0) { throw "gh release edit failed" }
+            }
+            gh release upload $tag $setup $setupSha $zip $zipSha --clobber
+            if ($LASTEXITCODE -ne 0) { throw "gh release upload failed" }
+          } else {
+            if (Test-Path $notesFile) {
+              gh release create $tag $setup $setupSha $zip $zipSha --title "AuraAudio $tag" --notes-file $notesFile
+            } else {
+              gh release create $tag $setup $setupSha $zip $zipSha --title "AuraAudio $tag" --generate-notes
+            }
+            if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+          }

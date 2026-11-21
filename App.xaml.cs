@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
+using AuraAudio.Core;
 using AuraAudio.Database;
 using AuraAudio.Scanner;
 
@@ -26,12 +27,22 @@ public partial class App : Application
         DispatcherUnhandledException += (s, e) =>
         {
             AuraAudio.Audio.EmergencyAudioSilencer.SilenceAllActive(timeoutMs: 150);
-            try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "aura_crash.log"), e.Exception.ToString()); } catch { }
+            try
+            {
+                AppDataPaths.EnsureLogsDirectory();
+                File.WriteAllText(AppDataPaths.CrashLogPath, e.Exception.ToString());
+            }
+            catch { }
         };
         AppDomain.CurrentDomain.UnhandledException += (s, e) =>
         {
             AuraAudio.Audio.EmergencyAudioSilencer.SilenceAllActive(timeoutMs: 150);
-            try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "aura_crash.log"), e.ExceptionObject?.ToString() ?? "Unknown exception"); } catch { }
+            try
+            {
+                AppDataPaths.EnsureLogsDirectory();
+                File.WriteAllText(AppDataPaths.CrashLogPath, e.ExceptionObject?.ToString() ?? "Unknown exception");
+            }
+            catch { }
         };
         AppDomain.CurrentDomain.ProcessExit += (s, e) =>
         {
@@ -107,9 +118,8 @@ public partial class App : Application
 
         try
         {
-            string appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AuraAudio");
-            Directory.CreateDirectory(appData);
-            string dbPath = Path.Combine(appData, "library.db");
+            AppDataPaths.EnsureRootDirectory();
+            string dbPath = AppDataPaths.LibraryDatabasePath;
 
             var db = new DatabaseManager(dbPath);
             db.Initialize();
@@ -147,8 +157,10 @@ public partial class App : Application
         {
             try
             {
-                File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "aura_startup_error.log"), ex.ToString());
-                MessageBox.Show($"Terjadi kesalahan saat memulai AuraAudio:\n\n{ex.Message}\n\nDetail lengkap telah disimpan di aura_startup_error.log", "AuraAudio Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDataPaths.EnsureLogsDirectory();
+                string startupLog = AppDataPaths.StartupErrorLogPath;
+                File.WriteAllText(startupLog, ex.ToString());
+                MessageBox.Show($"Terjadi kesalahan saat memulai AuraAudio:\n\n{ex.Message}\n\nDetail lengkap telah disimpan di:\n{startupLog}", "AuraAudio Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             catch { }
             Shutdown(1);
