@@ -244,6 +244,34 @@ public sealed class ForensicV202RegressionTests : IDisposable
         Assert.Equal(AuthenticityVerdict.HybridMaster, report.Verdict);
     }
 
+    [Fact]
+    public void Forensic7_2_Clean44_1kAntiAliasAt21_4k_IsVerifiedLossless_While20_1kBrickwallRemainsGuarded()
+    {
+        // 1. Clean 16/44.1 master with steep anti-aliasing filter at 21.4 kHz (97.1% of 22.05 kHz Nyquist) -> VerifiedLossless
+        string cleanAntiAlias = WriteBroadbandSineBankWav(
+            "gen_44100_antialias_21400.wav",
+            sampleRate: 44_100,
+            bitsPerSample: 16,
+            durationSeconds: 3.0,
+            maxFreqHz: 21_400.0,
+            amplitudeScale: 0.65);
+
+        var cleanReport = NyquistSpectrumAnalyzer.Analyze(cleanAntiAlias);
+        Assert.Equal(AuthenticityVerdict.VerifiedLossless, cleanReport.Verdict);
+
+        // 2. Lossy-like 20.1 kHz brickwall (91.2% of Nyquist, MP3 320k region) must NOT pass as VerifiedLossless
+        string brickwall20100 = WriteBroadbandSineBankWav(
+            "lossy_44100_brickwall_20100.wav",
+            sampleRate: 44_100,
+            bitsPerSample: 16,
+            durationSeconds: 3.0,
+            maxFreqHz: 20_100.0,
+            amplitudeScale: 0.65);
+
+        var brickwallReport = NyquistSpectrumAnalyzer.Analyze(brickwall20100);
+        Assert.NotEqual(AuthenticityVerdict.VerifiedLossless, brickwallReport.Verdict);
+    }
+
     private static double[] BuildHybridNotchFrequencies(out double[] phases, Random rng)
     {
         var list = new System.Collections.Generic.List<double>();

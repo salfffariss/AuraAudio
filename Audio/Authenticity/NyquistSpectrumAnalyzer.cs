@@ -122,6 +122,9 @@ public static class NyquistSpectrumAnalyzer
     private const double Tail48kMaxDropDb = 10.0;
     private const double Tail48kMaxCliffDb = 16.0;
     private const double Cd44kInconclusiveDropDb = 25.0;
+    // Physical anti-aliasing transition band at 44.1 kHz (95.5% of 22,050 Hz Nyquist):
+    // sits in the 1,141 Hz gap between highest DEV lossy brickwall (20,241 Hz) and lowest DEV soxr downsample (21,382 Hz).
+    private const uint Cd44kSteepGuardMaxHz = 21_050;
 
     // Low sample-rate (< 44.1 kHz) Nyquist-relative thresholds (FORENSIC #4)
     private const double LowSrFullBandMinNyquistRatio = 0.92;
@@ -747,7 +750,7 @@ public static class NyquistSpectrumAnalyzer
                 detectedCutoffHz = detectedKneeHz;
                 explanation = $"Perlu cek manual: spektrum {srKhz:F1} kHz turun di bawah ambang pada ~{detectedKneeHz / 1000.0:F1} kHz (kemiringan {kneeSteepness:F1} dB/oktaf, penurunan {dropAcrossKnee:F1} dB).";
             }
-            else if (dropAcrossKnee >= Cd44kInconclusiveDropDb && kneeSteepness <= LossySteepnessThresholdDbPerOct)
+            else if (detectedKneeHz <= Cd44kSteepGuardMaxHz && dropAcrossKnee >= Cd44kInconclusiveDropDb && kneeSteepness <= LossySteepnessThresholdDbPerOct)
             {
                 verdict = AuthenticityVerdict.Inconclusive;
                 detectedCutoffHz = detectedKneeHz;
