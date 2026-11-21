@@ -47,6 +47,8 @@ jobs:
       - name: Build Release (0 warnings required)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           dotnet build AuraAudio.csproj -c Release -warnaserror
           dotnet build tests\AuraAudio.Tests\AuraAudio.Tests.csproj -c Release -warnaserror
           dotnet build tools\benchmark\AuraAudio.BenchmarkWorker\AuraAudio.BenchmarkWorker.csproj -c Release -warnaserror
@@ -61,6 +63,8 @@ jobs:
       - name: Ensure Inno Setup 6 is installed
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
           if (-not $iscc -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe") -and -not (Test-Path "${env:ProgramFiles}\Inno Setup 6\ISCC.exe")) {
             choco install innosetup -y --no-progress
