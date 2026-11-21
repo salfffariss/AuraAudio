@@ -49,7 +49,13 @@ Start-Sleep -Milliseconds 300
 if (Test-Path $crashLog) { Remove-Item $crashLog -Force }
 if (Test-Path $startupLog) { Remove-Item $startupLog -Force }
 
-$proc = Start-Process -FilePath $exePath -WorkingDirectory $dirPath -PassThru
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $exePath
+$psi.WorkingDirectory = $dirPath
+$psi.UseShellExecute = $false
+$psi.EnvironmentVariables["AURA_SMOKE_MODE"] = "1"
+$psi.EnvironmentVariables["AURA_AUDIO_NULL_OUTPUT"] = "1"
+$proc = [System.Diagnostics.Process]::Start($psi)
 $root = $null
 $pidCond = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
@@ -319,14 +325,44 @@ try {
     if ((Find-ById "Aura.Settings.A11y.ReducedMotion") -eq $null) { throw "Missing Aura.Settings.A11y.ReducedMotion" }
     Write-Output "PASS [Settings]: BreadcrumbBar + 5 Categories + Playback/Library/Accessibility drill-down"
 
-    # 8. Verify Full-Page Audio Inspector + Monochrome SpekSpectrumControl + Click-on-Text safety
-    Invoke-El (Find-ById "Aura.Nav.Inspector") "Nav.Inspector"
-    Start-Sleep -Milliseconds 350
+    # 8. Verify Full-Page Audio Inspector + Monochrome SpekSpectrumControl + Click-on-Text safety + Track-Follow across Pages
+    Invoke-El (Find-ById "Aura.Nav.Songs") "Nav.Songs (Inspector Follow Prep)"
+    Start-Sleep -Milliseconds 300
+    $playAllBtn = Find-ById "Aura.Songs.PlayAll"
+    if ($playAllBtn -eq $null) { throw "Missing Aura.Songs.PlayAll" }
+    Invoke-El $playAllBtn "Songs.PlayAll (Track A)"
+    Start-Sleep -Milliseconds 600
+
+    Invoke-El (Find-ById "Aura.Nav.Inspector") "Nav.Inspector (Track A)"
+    Start-Sleep -Milliseconds 400
     foreach ($iid in @("Aura.Inspector.Spectrum","Aura.Inspector.AnalyzeCurrent","Aura.Inspector.OpenFile")) {
         if ((Find-ById $iid) -eq $null) { throw "Missing Inspector element: $iid" }
     }
+    $inspTitleElA = Find-ById "Aura.Inspector.TrackTitle"
+    $inspBadgeElA = Find-ById "Aura.Inspector.FormatBadge"
+    if ($inspTitleElA -eq $null -or $inspBadgeElA -eq $null) {
+        throw "Inspector header/format badge missing after starting Track A"
+    }
+    $titleA = $inspTitleElA.Current.Name
     Click-VisibleText (Find-ById "Aura.Inspector.Root") "Inspector"
-    Write-Output "PASS [Inspector]: InspectorView + Aura.Inspector.Spectrum + Text Click Safety"
+
+    # Switch to another page (Songs), change track while Inspector is inactive, then return to Inspector
+    Invoke-El (Find-ById "Aura.Nav.Songs") "Nav.Songs (Leave Inspector)"
+    Start-Sleep -Milliseconds 300
+    Invoke-El (Find-ById "Aura.Dock.Next") "Dock.Next (Track B while Inspector inactive)"
+    Start-Sleep -Milliseconds 600
+    Invoke-El (Find-ById "Aura.Nav.Inspector") "Nav.Inspector (Track B)"
+    Start-Sleep -Milliseconds 400
+    $inspTitleElB = Find-ById "Aura.Inspector.TrackTitle"
+    if ($inspTitleElB -eq $null) { throw "Inspector TrackTitle missing after switching to Track B" }
+    $titleB = $inspTitleElB.Current.Name
+    if ([string]::IsNullOrWhiteSpace($titleA) -or [string]::IsNullOrWhiteSpace($titleB)) {
+        throw "Expected non-empty Inspector track titles (A='$titleA', B='$titleB')"
+    }
+    if ($titleA -eq $titleB) {
+        throw "Inspector did not update when track changed from another page (stuck on '$titleA')"
+    }
+    Write-Output ("PASS [Inspector]: InspectorView + Spectrum + Text Click Safety + Follows Track Across Pages ('{0}' -> '{1}')" -f $titleA, $titleB)
 
     # 9. Verify 4-Tab Get Info Modal Sheet + Click-on-Text safety (InfoSheet & Lyrics)
     Invoke-El (Find-ById "Aura.Dock.Info") "Dock.Info"

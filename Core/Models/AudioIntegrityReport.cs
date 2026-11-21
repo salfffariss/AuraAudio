@@ -101,6 +101,8 @@ public record AudioIntegrityReport
     public bool IsHardwareExclusive { get; init; }
     public AudioDriverType ConfiguredDriverType { get; init; }
     public uint? UpperEnvelopeReachHz { get; init; }
+    public string? AnalyzedFilePath { get; init; }
+    public string AnalyzerVersion { get; init; } = string.Empty;
 
     public uint NyquistLimitHz => SourceSpec.SampleRateHz / 2;
 
@@ -528,7 +530,9 @@ public record AudioIntegrityReport
         bool hasActiveHardwarePath = false,
         bool isHardwareExclusive = true,
         AudioDriverType configuredDriverType = AudioDriverType.WASAPI_Exclusive,
-        uint? upperEnvelopeReachHz = null)
+        uint? upperEnvelopeReachHz = null,
+        string? analyzedFilePath = null,
+        string? analyzerVersion = null)
     {
         SourceSpec = sourceSpec ?? throw new ArgumentNullException(nameof(sourceSpec));
         HardwareSpec = hardwareSpec ?? throw new ArgumentNullException(nameof(hardwareSpec));
@@ -563,5 +567,7 @@ public record AudioIntegrityReport
         IsHardwareExclusive = isHardwareExclusive;
         ConfiguredDriverType = configuredDriverType;
         UpperEnvelopeReachHz = upperEnvelopeReachHz;
+        AnalyzedFilePath = analyzedFilePath;
+        AnalyzerVersion = analyzerVersion ?? string.Empty;
     }
 }

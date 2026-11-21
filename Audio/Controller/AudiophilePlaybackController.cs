@@ -37,7 +37,7 @@ public sealed class PlaybackErrorEventArgs : EventArgs
 /// 6. NyquistSpectrumAnalyzer (Audit integritas spektrum ultrasonik anti-fake FLAC)
 /// Menggunakan System.Threading.Channels untuk komunikasi bebas kunci (Lock-Free) dengan UI Thread (120 FPS).
 /// </summary>
-public class AudiophilePlaybackController : IDisposable
+public class AudiophilePlaybackController : IPlaybackTrackSource, IDisposable
 {
     private readonly object _lock = new();
     private readonly IAudioOutputEngine _outputEngine;
@@ -138,13 +138,16 @@ public class AudiophilePlaybackController : IDisposable
     // Event Langsung untuk Subscriber Konvensional
     public event EventHandler<PlaybackStateSnapshot>? StateChanged;
     public event EventHandler<Track>? TrackChanged;
+    public event EventHandler<Track?>? CurrentTrackChanged;
     public event EventHandler<AudioIntegrityReport>? IntegrityReportUpdated;
     public event EventHandler<SignalPathSummary>? SignalPathUpdated;
     public event EventHandler<PlaybackErrorEventArgs>? PlaybackFailed;
 
     public AudiophilePlaybackController(IAudioOutputEngine? outputEngine = null)
     {
-        _outputEngine = outputEngine ?? new WasapiExclusivePlayer();
+        _outputEngine = outputEngine ?? (string.Equals(Environment.GetEnvironmentVariable("AURA_AUDIO_NULL_OUTPUT"), "1", StringComparison.Ordinal)
+            ? new NullAudioOutputEngine()
+            : new WasapiExclusivePlayer());
         _deviceEnumerator = new DeviceEnumerator();
         _currentDevice = _deviceEnumerator.GetDefaultRenderDevice();
 
@@ -494,7 +497,12 @@ public class AudiophilePlaybackController : IDisposable
             }
             else
             {
-                _currentTrack = targetTrack;
+                lock (_lock)
+                {
+                    _currentTrack = targetTrack;
+                    _currentIntegrityReport = null;
+                }
+                CurrentTrackChanged?.Invoke(this, targetTrack);
                 PublishSnapshot();
             }
         }
@@ -544,6 +552,7 @@ public class AudiophilePlaybackController : IDisposable
                 _activeQueue.QueueEnded += OnGaplessQueueEnded;
 
                 _currentTrack = track;
+                _currentIntegrityReport = null;
                 _currentDevice ??= _deviceEnumerator.GetDefaultRenderDevice();
 
                 // 3. Inisialisasi engine output hardware (sinkronkan volume sebelum & sesudah init)
@@ -565,6 +574,7 @@ public class AudiophilePlaybackController : IDisposable
             _outputEngine.Play();
 
             TrackChanged?.Invoke(this, track);
+            CurrentTrackChanged?.Invoke(this, track);
             SignalPathUpdated?.Invoke(this, _currentSignalPath);
             PublishSnapshot();
 
@@ -635,6 +645,7 @@ public class AudiophilePlaybackController : IDisposable
         lock (_lock)
         {
             _currentTrack = nextTrack;
+            _currentIntegrityReport = null;
             if (_activeQueue != null)
             {
                 _currentSignalPath = SignalPathAuditor.Audit(_activeQueue, _outputEngine, _driverType);
@@ -649,6 +660,7 @@ public class AudiophilePlaybackController : IDisposable
             }
         });
 
+        CurrentTrackChanged?.Invoke(this, _currentTrack);
         if (_currentTrack != null)
         {
             TrackChanged?.Invoke(this, _currentTrack);

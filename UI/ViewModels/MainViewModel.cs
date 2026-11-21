@@ -65,7 +65,6 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     private string _signalPathBadge = "BIT-PERFECT DIRECT";
     private SignalPathSummary? _currentSignalPath;
-    private AudioIntegrityReport? _currentIntegrityReport;
     private string _streamSpecBadge = "--";
     private bool _isShuffleEnabled = false;
     private PlaybackRepeatMode _repeatMode = PlaybackRepeatMode.Off;
@@ -83,7 +82,6 @@ public class MainViewModel : ViewModelBase, IDisposable
     private string _queueSummaryText = "Antrean kosong";
     private int _currentQueueIndex = -1;
     private bool _isQueueDrawerOpen = false;
-    private string _analysisErrorMessage = string.Empty;
     private string _playbackErrorMessage = string.Empty;
     private CancellationTokenSource? _searchDebounceCts;
 
@@ -93,6 +91,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public SearchViewModel Search { get; }
     public LyricsViewModel Lyrics { get; }
     public SettingsViewModel Settings { get; }
+    public InspectorViewModel Inspector { get; }
 
     // Now Playing Music Detail Stage State
     private TrackExtendedDetails _currentTrackDetails = TrackExtendedDetails.Empty;
@@ -475,6 +474,10 @@ public class MainViewModel : ViewModelBase, IDisposable
                 {
                     RefreshCurrentTrackExtendedContext();
                 }
+                else if (normalized == "Inspector")
+                {
+                    Inspector?.OnActivated();
+                }
 
                 NotifyBreadcrumbChanged();
             }
@@ -665,15 +668,8 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public AudioIntegrityReport? CurrentIntegrityReport
     {
-        get => _currentIntegrityReport;
-        set
-        {
-            if (SetProperty(ref _currentIntegrityReport, value))
-            {
-                OnPropertyChanged(nameof(HasActiveIntegrityReport));
-                OnPropertyChanged(nameof(IsInspectorEmpty));
-            }
-        }
+        get => Inspector.CurrentIntegrityReport;
+        set => Inspector.CurrentIntegrityReport = value;
     }
 
     public string StreamSpecBadge
@@ -806,43 +802,21 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _selectedTrack, value);
     }
 
-    // Authenticity Inspector State
-    private Track? _inspectedTrack;
-    private bool _isAnalyzing;
-    private CancellationTokenSource? _analyzeCts;
-
+    // Authenticity Inspector State (single source of truth in InspectorViewModel)
     public Track? InspectedTrack
     {
-        get => _inspectedTrack ?? CurrentTrack;
-        set => SetProperty(ref _inspectedTrack, value);
+        get => Inspector.InspectedTrack;
+        set => Inspector.InspectedTrack = value;
     }
 
-    public bool IsAnalyzing
-    {
-        get => _isAnalyzing;
-        set
-        {
-            if (SetProperty(ref _isAnalyzing, value))
-            {
-                OnPropertyChanged(nameof(HasAnalysisError));
-                OnPropertyChanged(nameof(HasActiveIntegrityReport));
-                OnPropertyChanged(nameof(IsInspectorEmpty));
-            }
-        }
-    }
+    public bool IsInspectingExternalFile => Inspector.IsInspectingExternalFile;
+
+    public bool IsAnalyzing => Inspector.IsAnalyzing;
 
     public string AnalysisErrorMessage
     {
-        get => _analysisErrorMessage;
-        set
-        {
-            if (SetProperty(ref _analysisErrorMessage, value))
-            {
-                OnPropertyChanged(nameof(HasAnalysisError));
-                OnPropertyChanged(nameof(HasActiveIntegrityReport));
-                OnPropertyChanged(nameof(IsInspectorEmpty));
-            }
-        }
+        get => Inspector.AnalysisErrorMessage;
+        set => Inspector.AnalysisErrorMessage = value;
     }
 
     public string PlaybackErrorMessage
@@ -851,9 +825,9 @@ public class MainViewModel : ViewModelBase, IDisposable
         private set => SetProperty(ref _playbackErrorMessage, value);
     }
 
-    public bool HasAnalysisError => !IsAnalyzing && !string.IsNullOrEmpty(_analysisErrorMessage);
-    public bool HasActiveIntegrityReport => !IsAnalyzing && CurrentIntegrityReport != null && string.IsNullOrEmpty(_analysisErrorMessage);
-    public bool IsInspectorEmpty => !IsAnalyzing && CurrentIntegrityReport == null && string.IsNullOrEmpty(_analysisErrorMessage);
+    public bool HasAnalysisError => Inspector.HasAnalysisError;
+    public bool HasActiveIntegrityReport => Inspector.HasActiveIntegrityReport;
+    public bool IsInspectorEmpty => Inspector.IsInspectorEmpty;
 
     // Perintah Tombol (ICommand)
     public ICommand TogglePlayPauseCommand { get; }
@@ -1062,6 +1036,17 @@ public class MainViewModel : ViewModelBase, IDisposable
         Search = new SearchViewModel(_db, this);
         Lyrics = new LyricsViewModel(sec => OnSliderDragCompleted(sec));
         Settings = new SettingsViewModel(_controller, _db, RefreshLibraryAfterSettingsMutation, RefreshAudioAfterSettingsMutation);
+        Inspector = new InspectorViewModel(
+            _controller,
+            onStreamSpecCorrected: (updatedTrack, correctedSpec) =>
+            {
+                AudioMetadataReader.InvalidateExtendedDetailsCache(updatedTrack.FilePath);
+                if (updatedTrack.Id > 0)
+                {
+                    try { _db.UpdateTrackStreamSpec(updatedTrack.Id, correctedSpec); } catch { }
+                }
+            });
+        Inspector.PropertyChanged += OnInspectorPropertyChanged;
 
         Presentation.PropertyChanged += (_, args) =>
         {
@@ -1519,10 +1504,6 @@ public class MainViewModel : ViewModelBase, IDisposable
                     }
                 }
                 CurrentView = viewName;
-                if (viewName == "Inspector" && CurrentIntegrityReport == null && (InspectedTrack != null || CurrentTrack != null))
-                {
-                    _ = AnalyzeTrackAsync(InspectedTrack ?? CurrentTrack);
-                }
             }
         });
         PlaySelectedTrackCommand = new RelayCommand(async param =>
@@ -1627,18 +1608,17 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         InspectTrackCommand = new RelayCommand(async param =>
         {
-            var target = param as Track ?? SelectedTrack ?? CurrentTrack;
+            var target = param as Track ?? SelectedTrack ?? _controller.CurrentTrack ?? CurrentTrack;
             if (target != null)
             {
-                InspectedTrack = target;
                 CurrentView = "Inspector";
-                await AnalyzeTrackAsync(target);
+                await Inspector.InspectTrackAsync(target);
             }
         });
 
         AnalyzeTrackCommand = new RelayCommand(async () =>
         {
-            await AnalyzeTrackAsync(InspectedTrack ?? CurrentTrack);
+            await Inspector.AnalyzeCurrentTrackAsync();
         });
 
         OpenInspectFileDialogCommand = new RelayCommand(async () =>
@@ -1656,17 +1636,15 @@ public class MainViewModel : ViewModelBase, IDisposable
                 try
                 {
                     var scanned = new AudioMetadataReader().ReadFile(dlg.FileName);
-                    InspectedTrack = scanned.Track;
                     CurrentView = "Inspector";
-                    await AnalyzeTrackAsync(scanned.Track);
+                    await Inspector.InspectExternalFileAsync(scanned.Track);
                 }
                 catch (Exception ex)
                 {
-                    CurrentIntegrityReport = null;
                     CurrentView = "Inspector";
-                    AnalysisErrorMessage = isEn
+                    Inspector.ReportExternalFileError(isEn
                         ? $"Failed to read audio file metadata: {ex.Message}"
-                        : $"Gagal membaca metadata berkas audio: {ex.Message}";
+                        : $"Gagal membaca metadata berkas audio: {ex.Message}");
                     Debug.WriteLine($"Gagal membaca metadata: {ex.Message}");
                 }
             }
@@ -2171,7 +2149,6 @@ public class MainViewModel : ViewModelBase, IDisposable
     public void PrepareInfoSheetForTrack(Track? track)
     {
         var target = track ?? CurrentTrack;
-        var previousInspectedPath = _inspectedTrack?.FilePath;
 
         if (target != null && System.IO.File.Exists(target.FilePath))
         {
@@ -2194,12 +2171,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         InfoTargetDetails = target != null ? AudioMetadataReader.ReadExtendedDetails(target) : TrackExtendedDetails.Empty;
         if (target != null)
         {
-            if (!string.Equals(previousInspectedPath, target.FilePath, StringComparison.OrdinalIgnoreCase))
-            {
-                CurrentIntegrityReport = null;
-                AnalysisErrorMessage = string.Empty;
-            }
-            InspectedTrack = target;
+            Inspector.PrepareForTrackPreview(target);
 
             var parsed = LyricsParser.LoadForFile(target.FilePath);
             ApplyInfoLyricsResult(parsed);
@@ -2356,44 +2328,19 @@ public class MainViewModel : ViewModelBase, IDisposable
             CurrentSignalPath = s.SignalPath;
         }
 
-        if (s.IntegrityReport != null &&
-            (InspectedTrack == null || string.Equals(InspectedTrack.FilePath, s.CurrentTrack?.FilePath, StringComparison.OrdinalIgnoreCase)))
+        if (s.IntegrityReport != null)
         {
-            CurrentIntegrityReport = s.IntegrityReport;
+            Inspector.TryAcceptExternalReport(s.IntegrityReport);
         }
 
         RefreshSidebarDriverStatus();
-
-        if (CurrentIntegrityReport != null && InspectedTrack != null)
-        {
-            var (hwSpec, hasActivePath, isExclusive, driverType) = _controller.GetHardwareAuditContext(InspectedTrack.FilePath);
-            var targetHwSpec = hwSpec ?? CurrentIntegrityReport.SourceSpec;
-            if (CurrentIntegrityReport.HasActiveHardwarePath != hasActivePath ||
-                CurrentIntegrityReport.IsHardwareExclusive != isExclusive ||
-                CurrentIntegrityReport.ConfiguredDriverType != driverType ||
-                (hasActivePath && CurrentIntegrityReport.HardwareSpec != targetHwSpec))
-            {
-                CurrentIntegrityReport = CurrentIntegrityReport with
-                {
-                    HardwareSpec = targetHwSpec,
-                    HasActiveHardwarePath = hasActivePath,
-                    IsHardwareExclusive = isExclusive,
-                    ConfiguredDriverType = driverType
-                };
-            }
-        }
+        Inspector.RefreshHardwareAuditContext();
 
         IsShuffleEnabled = s.IsShuffleEnabled;
         RepeatMode = s.RepeatMode;
         if (s.ActiveDevice != null)
         {
             OutputDeviceName = s.ActiveDevice.Name;
-        }
-
-        if (trackChanged && CurrentView == "Inspector" && s.CurrentTrack != null)
-        {
-            InspectedTrack = s.CurrentTrack;
-            _ = AnalyzeTrackAsync(s.CurrentTrack);
         }
 
         if (trackChanged || QueueTracks.Count != _controller.Playlist.Count)
@@ -3032,80 +2979,29 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public async Task AnalyzeTrackAsync(Track? track)
+    private void OnInspectorPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        var target = track ?? InspectedTrack ?? CurrentTrack;
-        bool isEn = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en";
-        if (target == null)
+        if (string.IsNullOrEmpty(e.PropertyName))
         {
-            AnalysisErrorMessage = string.Empty;
-            return;
-        }
-        if (!File.Exists(target.FilePath))
-        {
-            CurrentIntegrityReport = null;
-            AnalysisErrorMessage = isEn
-                ? $"Audio file could not be found: {target.FilePath}"
-                : $"Berkas audio tidak ditemukan di penyimpanan: {target.FilePath}";
+            OnPropertyChanged(nameof(InspectedTrack));
+            OnPropertyChanged(nameof(CurrentIntegrityReport));
+            OnPropertyChanged(nameof(IsAnalyzing));
+            OnPropertyChanged(nameof(AnalysisErrorMessage));
+            OnPropertyChanged(nameof(HasAnalysisError));
+            OnPropertyChanged(nameof(HasActiveIntegrityReport));
+            OnPropertyChanged(nameof(IsInspectorEmpty));
+            OnPropertyChanged(nameof(IsInspectingExternalFile));
             return;
         }
 
-        // Batalkan analisis sebelumnya jika pengguna berpindah lagu dengan cepat
-        _analyzeCts?.Cancel();
-        _analyzeCts?.Dispose();
-        _analyzeCts = new CancellationTokenSource();
-        var ct = _analyzeCts.Token;
+        OnPropertyChanged(e.PropertyName);
+    }
 
-        InspectedTrack = target;
-        AnalysisErrorMessage = string.Empty;
-        IsAnalyzing = true;
-        try
-        {
-            var (hwSpec, hasActivePath, isExclusive, driverType) = _controller.GetHardwareAuditContext(target.FilePath);
-            var report = await NyquistSpectrumAnalyzer.AnalyzeAsync(
-                target.FilePath,
-                hwSpec,
-                hasActivePath,
-                isExclusive,
-                driverType,
-                cancellationToken: ct);
-            if (!ct.IsCancellationRequested)
-            {
-                if (report.SourceSpec != target.StreamSpec)
-                {
-                    var updated = target with { StreamSpec = report.SourceSpec };
-                    InspectedTrack = updated;
-                    AudioMetadataReader.InvalidateExtendedDetailsCache(updated.FilePath);
-                    if (updated.Id > 0)
-                    {
-                        try { _db.UpdateTrackStreamSpec(updated.Id, report.SourceSpec); } catch { }
-                    }
-                }
-                CurrentIntegrityReport = report;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Abaikan pembatalan normal saat berganti lagu
-        }
-        catch (Exception ex)
-        {
-            if (!ct.IsCancellationRequested)
-            {
-                CurrentIntegrityReport = null;
-                AnalysisErrorMessage = isEn
-                    ? $"Unable to analyze this audio file: {ex.Message}"
-                    : $"Gagal menganalisis berkas audio ini: {ex.Message}";
-            }
-            Debug.WriteLine($"Kesalahan analisis Nyquist FFT: {ex.Message}");
-        }
-        finally
-        {
-            if (!ct.IsCancellationRequested)
-            {
-                IsAnalyzing = false;
-            }
-        }
+    public Task AnalyzeTrackAsync(Track? track)
+    {
+        return track != null
+            ? Inspector.InspectTrackAsync(track)
+            : Inspector.AnalyzeCurrentTrackAsync();
     }
 
     /// <summary>
@@ -3378,6 +3274,8 @@ public class MainViewModel : ViewModelBase, IDisposable
         _isDisposed = true;
 
         _controller.PlaybackFailed -= OnControllerPlaybackFailed;
+        Inspector.PropertyChanged -= OnInspectorPropertyChanged;
+        Inspector.Dispose();
         SaveSession();
         Settings.HardwareConfig.Cleanup();
         _searchDebounceCts?.Cancel();

@@ -23,6 +23,11 @@ namespace AuraAudio.Audio.Authenticity;
 /// </summary>
 public static class NyquistSpectrumAnalyzer
 {
+    /// <summary>
+    /// Forensic analyzer version identifier used to validate cached per-track reports.
+    /// </summary>
+    public const string AnalyzerVersion = "2.0.2";
+
     // =========================================================================
     // NAMED FORENSIC CALIBRATION CONSTANTS (All thresholds documented & synced
     // with docs/METODE_ANALISIS_KEASLIAN_AUDIO.md)
@@ -222,7 +227,12 @@ public static class NyquistSpectrumAnalyzer
         }
 
         using var stream = AudioDecoderFactory.OpenStream(filePath);
-        return Analyze(stream, hardwareSpec, hasActiveHardwarePath, isHardwareExclusive, configuredDriverType, cancellationToken);
+        var report = Analyze(stream, hardwareSpec, hasActiveHardwarePath, isHardwareExclusive, configuredDriverType, cancellationToken);
+        return report with
+        {
+            AnalyzedFilePath = filePath,
+            AnalyzerVersion = AnalyzerVersion
+        };
     }
 
     /// <summary>
