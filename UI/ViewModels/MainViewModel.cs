@@ -11,6 +11,7 @@ using System.Windows.Input;
 using AuraAudio.Audio.Authenticity;
 using AuraAudio.Audio.Controller;
 using AuraAudio.Audio.Playlist;
+using AuraAudio.Core;
 using AuraAudio.Core.Models;
 using AuraAudio.Database;
 using AuraAudio.Metadata;
@@ -1022,9 +1023,8 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         _controller = controller ?? new AudiophilePlaybackController();
 
-        string appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AuraAudio");
-        Directory.CreateDirectory(appData);
-        string dbPath = Path.Combine(appData, "library.db");
+        AppDataPaths.EnsureRootDirectory();
+        string dbPath = AppDataPaths.LibraryDatabasePath;
 
         _db = db ?? new DatabaseManager(dbPath);
         _db.Initialize();

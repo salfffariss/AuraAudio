@@ -5,6 +5,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Security.Cryptography;
+using AuraAudio.Core;
 
 namespace AuraAudio.Scanner;
 
@@ -38,7 +39,7 @@ public class ThumbnailCacheManager
 
     public ThumbnailCacheManager(string? customCacheDir = null)
     {
-        _cacheDirectory = customCacheDir ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cache", "Thumbnails");
+        _cacheDirectory = customCacheDir ?? AppDataPaths.ThumbnailCacheDirectory;
         Directory.CreateDirectory(_cacheDirectory);
     }
 

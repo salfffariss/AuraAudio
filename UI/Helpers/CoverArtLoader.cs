@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using AuraAudio.Core;
 using AuraAudio.Scanner;
 
 namespace AuraAudio.UI.Helpers;
@@ -16,12 +17,7 @@ namespace AuraAudio.UI.Helpers;
 public static class CoverArtLoader
 {
     private static readonly ConcurrentDictionary<string, ImageSource> _memoryImageCache = new();
-    private static readonly string CacheDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Cache", "Thumbnails");
-
-    static CoverArtLoader()
-    {
-        Directory.CreateDirectory(CacheDir);
-    }
+    private static string CacheDir => AppDataPaths.EnsureThumbnailCacheDirectory();
 
     private static AuraAudio.Database.DatabaseManager? _database;
 
