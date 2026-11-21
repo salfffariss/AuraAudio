@@ -56,7 +56,11 @@ public static class NyquistSpectrumAnalyzer
 
     // Dead digital silence ceiling (mathematical -160 dBFS zeroed upper bands from brickwall filters)
     private const double DeadSilenceFloorDbFS = -152.0;
+    // Container-aware 16-bit quantization/dither floor ceiling for FORENSIC #3.1
+    // (16-bit TPDF/RPDF floor sits at -130.7 to -135.6 dBFS; verified flat via tailStdDev <= 2.2 dB)
+    private const double DeadSilenceFloor16BitDbFS = -132.0;
     private const double DeadSilenceMaxStdDevDb = 2.5;
+    private const double DeadSilence16BitMaxStdDevDb = 2.2;
     private const double DeadSilenceBandDbFS = -150.0;
 
     // CD upsampling & transition slope thresholds
@@ -400,7 +404,7 @@ public static class NyquistSpectrumAnalyzer
         var (_, midTrebleCliffDrop) = ComputeMaxMidTrebleCliff(avgPower, envPower, binResolution, nyquistLimitHz);
         double trebleDecaySlope = ComputeTrebleDecaySlope(envPower, binResolution, detectedKneeHz);
         var (isDeadZeroLossyCutoff, deadZeroLossyCutoffHz, deadZeroLossySteepness, deadZeroLossyDropDb) =
-            ComputeDeadZeroLossyBrickwall(avgPower, binResolution, nyquistLimitHz);
+            ComputeDeadZeroLossyBrickwall(avgPower, binResolution, nyquistLimitHz, bitsPerSample);
 
         double slopeCdTransition = (sampleRate <= 44_100)
             ? ComputeSpectralSlope(19_000, 22_000, avgPower, binResolution)
@@ -724,7 +728,7 @@ public static class NyquistSpectrumAnalyzer
         else // Standar 44.1 kHz (mendukung baik 16-bit maupun 24-bit / 44.1 kHz)
         {
             double srKhz = sampleRate / 1000.0;
-            bool relLossyPattern44k = (relP16k < RelP16kLossyThresholdDb) || ((relP20k < RelP20kLossyThresholdDb) && relP16k > -35.0);
+            bool relLossyPattern44k = (relP16k < RelP16kLossyThresholdDb) || ((relP20k < RelP20kLossyThresholdDb) && relP16k > -40.0);
             bool isPrimaryMp3Cutoff44k = ((detectedKneeHz <= LossyKneeMaxHz) || relLossyPattern44k) &&
                                          kneeSteepness <= LossySteepnessThresholdDbPerOct &&
                                          dropAcrossKnee >= LossyDropAcrossKneeMinDb;
@@ -1697,19 +1701,23 @@ public static class NyquistSpectrumAnalyzer
     }
 
     /// <summary>
-    /// Memindai pemotongan tajam lossy (15.0–19.5 kHz) yang jatuh langsung ke keheningan digital absolut
-    /// (&lt;= -152 dBFS) hingga mendekati batas CD 22 kHz. Menangkap transcode MP3-ke-FLAC pada materi
-    /// akustik lembut (misal piano solo) yang sudah melandai di bawah -48 dB sebelum 16 kHz.
+    /// Memindai pemotongan tajam lossy (15.0–19.5 kHz) yang jatuh langsung ke lantai senyap wadah:
+    /// &lt;= -152 dBFS pada wadah 24-bit, atau plataran kuantisasi datar (&lt;= -132 dBFS, σ &lt;= 2.2 dB)
+    /// pada wadah 16-bit (FORENSIC #3.1). Menangkap transcode MP3-ke-FLAC pada materi akustik lembut.
     /// </summary>
     private static (bool Detected, uint CutoffHz, double SteepnessDbPerOct, double DropDb) ComputeDeadZeroLossyBrickwall(
         double[] avgPower,
         double binResolution,
-        uint nyquistLimitHz)
+        uint nyquistLimitHz,
+        int bitsPerSample)
     {
         if (binResolution <= 0.0 || avgPower.Length == 0 || nyquistLimitHz < 20_500)
         {
             return (false, 0, 0.0, 0.0);
         }
+
+        bool is16BitContainer = bitsPerSample <= 16;
+        double tailCeilingDb = is16BitContainer ? DeadSilenceFloor16BitDbFS : DeadSilenceFloorDbFS;
 
         double maxScanFreq = Math.Min(DeadZeroLossyScanMaxHz, nyquistLimitHz - 1_500.0);
         double tailEndHz = Math.Min(22_000.0, nyquistLimitHz - 200.0);
@@ -1733,7 +1741,14 @@ public static class NyquistSpectrumAnalyzer
             double tailCenter = 0.5 * (tailStartHz + tailEndHz);
             double tailHalf = 0.5 * (tailEndHz - tailStartHz);
             double tailDb = GetBandPowerDb(tailCenter, tailHalf, avgPower, binResolution);
-            if (tailDb > DeadSilenceFloorDbFS) continue;
+            if (tailDb > tailCeilingDb) continue;
+
+            if (is16BitContainer)
+            {
+                // On 16-bit containers, verify the upper stopband is a flat quantization/dither floor (not decaying harmonics)
+                double tailStd = ComputeBandStdDevDb(tailStartHz, tailEndHz, avgPower, binResolution);
+                if (tailStd > DeadSilence16BitMaxStdDevDb) continue;
+            }
 
             double steepness = ComputeSpectralSlope(f - 1_000.0, f + 1_000.0, avgPower, binResolution);
             if (steepness > LossySteepnessThresholdDbPerOct) continue;
@@ -1748,6 +1763,29 @@ public static class NyquistSpectrumAnalyzer
         }
 
         return (detected, bestCutoffHz, bestSteepness, bestDropDb);
+    }
+
+    private static double ComputeBandStdDevDb(double startFreq, double endFreq, double[] avgPower, double binResolution)
+    {
+        int startBin = Math.Clamp((int)(startFreq / binResolution), 1, avgPower.Length - 1);
+        int endBin = Math.Clamp((int)(endFreq / binResolution), startBin, avgPower.Length - 1);
+        int count = endBin - startBin + 1;
+        if (count < 2) return 0.0;
+
+        double sum = 0.0;
+        for (int b = startBin; b <= endBin; b++)
+        {
+            sum += 10.0 * Math.Log10(Math.Max(PowerFloorLinear, avgPower[b]));
+        }
+        double mean = sum / count;
+
+        double sumSq = 0.0;
+        for (int b = startBin; b <= endBin; b++)
+        {
+            double diff = 10.0 * Math.Log10(Math.Max(PowerFloorLinear, avgPower[b])) - mean;
+            sumSq += diff * diff;
+        }
+        return Math.Sqrt(sumSq / count);
     }
 
     /// <summary>

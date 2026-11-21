@@ -411,6 +411,74 @@ public sealed class ForensicV202RegressionTests : IDisposable
         Assert.Equal(AuthenticityVerdict.SuspectedUpscaledLossy, report.Verdict);
     }
 
+    [Fact]
+    public void Forensic3_1_Quiet16BitMp3BrickwallIntoQuantizationFloor_Detected_WhileSmoothQuiet16BitIsGenuine()
+    {
+        // 1. Quiet acoustic 16/44.1 signal (tapering smoothly from 1 kHz, then brickwalled at 16.0 kHz straight
+        // into the 16-bit quantization/dither floor ~-135 dBFS, never reaching -152 dBFS) -> SuspectedUpscaledLossy.
+        string fakeQuiet16 = Path.Combine(_tempDir, "quiet_16b_mp3_16k.wav");
+        const int sr = 44_100;
+        int totalSamples = sr * 3;
+        var rng = new Random(3101);
+        var freqs = new System.Collections.Generic.List<double>();
+        for (double f = 400.0; f <= 16_000.0; f += 250.0) freqs.Add(f);
+        double[] ph = new double[freqs.Count];
+        for (int k = 0; k < ph.Length; k++) ph[k] = rng.NextDouble() * 2.0 * Math.PI;
+
+        using (var writer = new WaveFileWriter(fakeQuiet16, new WaveFormat(sr, 16, 2)))
+        {
+            byte[] buf = new byte[2];
+            for (int i = 0; i < totalSamples; i++)
+            {
+                double t = (double)i / sr;
+                double sum = 0.0;
+                for (int k = 0; k < freqs.Count; k++)
+                {
+                    double f = freqs[k];
+                    double atten = f > 2_000.0 ? Math.Pow(2_000.0 / f, 1.8) : 1.0;
+                    sum += atten * Math.Sin(2.0 * Math.PI * f * t + ph[k]);
+                }
+                double dither = (rng.NextDouble() - rng.NextDouble()) * (0.5 / 32_768.0);
+                double v = Math.Clamp(sum * 0.03 + dither, -0.95, 0.95);
+                WritePcmSample(writer, v, 16, buf);
+                WritePcmSample(writer, v, 16, buf);
+            }
+        }
+
+        var fakeReport = NyquistSpectrumAnalyzer.Analyze(fakeQuiet16);
+        Assert.Equal(AuthenticityVerdict.SuspectedUpscaledLossy, fakeReport.Verdict);
+
+        // 2. Negative control: equally quiet 16/44.1 acoustic track with smooth natural roll-off (no brickwall) -> NOT false-fake
+        string genQuiet16 = Path.Combine(_tempDir, "quiet_16b_smooth_genuine.wav");
+        var genFreqs = new System.Collections.Generic.List<double>();
+        for (double f = 400.0; f <= 21_500.0; f += 250.0) genFreqs.Add(f);
+        double[] genPh = new double[genFreqs.Count];
+        for (int k = 0; k < genPh.Length; k++) genPh[k] = rng.NextDouble() * 2.0 * Math.PI;
+
+        using (var writer = new WaveFileWriter(genQuiet16, new WaveFormat(sr, 16, 2)))
+        {
+            byte[] buf = new byte[2];
+            for (int i = 0; i < totalSamples; i++)
+            {
+                double t = (double)i / sr;
+                double sum = 0.0;
+                for (int k = 0; k < genFreqs.Count; k++)
+                {
+                    double f = genFreqs[k];
+                    double atten = f > 2_000.0 ? Math.Pow(2_000.0 / f, 2.2) : 1.0;
+                    sum += atten * Math.Sin(2.0 * Math.PI * f * t + genPh[k]);
+                }
+                double dither = (rng.NextDouble() - rng.NextDouble()) * (0.5 / 32_768.0);
+                double v = Math.Clamp(sum * 0.03 + dither, -0.95, 0.95);
+                WritePcmSample(writer, v, 16, buf);
+                WritePcmSample(writer, v, 16, buf);
+            }
+        }
+
+        var genReport = NyquistSpectrumAnalyzer.Analyze(genQuiet16);
+        Assert.NotEqual(AuthenticityVerdict.SuspectedUpscaledLossy, genReport.Verdict);
+    }
+
     private static double[] BuildHybridNotchFrequencies(out double[] phases, Random rng)
     {
         var list = new System.Collections.Generic.List<double>();
