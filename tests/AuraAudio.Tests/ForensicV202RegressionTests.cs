@@ -597,6 +597,64 @@ public sealed class ForensicV202RegressionTests : IDisposable
         Assert.Equal(AuthenticityVerdict.VerifiedLossless, report.Verdict);
     }
 
+    [Fact]
+    public void Forensic7_1_LinearInterpolated48kMirrorFrom44_1k_IsInconclusive_NotGenuine()
+    {
+        // Reproduces linear-interpolated 44.1 -> 48 kHz upsampling of broadband audio:
+        // linear interpolation folds frequencies near 22.05 kHz symmetrically into 22.05..24.0 kHz
+        // with low attenuation and positive Pearson mirror correlation (r >= 0.30).
+        const int srcSr = 44_100;
+        const int dstSr = 48_000;
+        const double duration = 3.0;
+        int srcLen = (int)(srcSr * duration);
+        int dstLen = (int)(dstSr * duration);
+
+        var rng = new Random(7101);
+        double[] src = new double[srcLen];
+        var freqs = new System.Collections.Generic.List<double>();
+        for (double f = 400.0; f <= 21_950.0; f += 250.0) freqs.Add(f);
+        double[] phases = new double[freqs.Count];
+        double[] weights = new double[freqs.Count];
+        for (int k = 0; k < freqs.Count; k++)
+        {
+            phases[k] = rng.NextDouble() * 2.0 * Math.PI;
+            // Structured contour in 20..22 kHz so mirrored imaging around 22.05 kHz has strong correlation
+            weights[k] = freqs[k] > 18_000.0 ? (0.35 + 0.65 * Math.Sin((freqs[k] - 18_000.0) / 350.0) * Math.Sin((freqs[k] - 18_000.0) / 350.0)) : 1.0;
+        }
+
+        double maxAbs = 1e-12;
+        for (int i = 0; i < srcLen; i++)
+        {
+            double t = (double)i / srcSr;
+            double sum = 0.0;
+            for (int k = 0; k < freqs.Count; k++) sum += weights[k] * Math.Sin(2.0 * Math.PI * freqs[k] * t + phases[k]);
+            src[i] = sum;
+            double a = Math.Abs(sum);
+            if (a > maxAbs) maxAbs = a;
+        }
+        double scale = 0.80 / maxAbs;
+        for (int i = 0; i < srcLen; i++) src[i] *= scale;
+
+        // Naive linear interpolation from 44.1 kHz -> 48.0 kHz (produces imaging mirror above 22.05 kHz)
+        string path = Path.Combine(_tempDir, "linear_mirror_44_to_48.wav");
+        using (var writer = new WaveFileWriter(path, new WaveFormat(dstSr, 24, 2)))
+        {
+            byte[] buf = new byte[3];
+            for (int j = 0; j < dstLen; j++)
+            {
+                double srcPos = (double)j * srcSr / dstSr;
+                int idx = Math.Min((int)srcPos, srcLen - 2);
+                double frac = srcPos - idx;
+                double v = src[idx] * (1.0 - frac) + src[idx + 1] * frac;
+                WritePcmSample(writer, v, 24, buf);
+                WritePcmSample(writer, v, 24, buf);
+            }
+        }
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.Equal(AuthenticityVerdict.Inconclusive, report.Verdict);
+    }
+
     private static double[] BuildHybridNotchFrequencies(out double[] phases, Random rng)
     {
         var list = new System.Collections.Generic.List<double>();

@@ -118,7 +118,10 @@ public static class NyquistSpectrumAnalyzer
     private const double ImagingMinUpperMeanDbFS = -128.0;
     private const double FlatMirrorMinCorrelation = 0.30;
     private const double FlatMirrorMaxAttenuationDb = 3.0;
-    private const double FlatMirrorMinUpperMeanDbFS = -85.0;
+    // FORENSIC #7.1: Covers soft broadband linear-interpolated 48/96 kHz mirrors (-69.4 to -90.0 dBFS) while staying
+    // cleanly above genuine 48 kHz upper-band tails (-111.7 to -134.6 dBFS) and paired with r >= 0.30, att <= 3.0 dB,
+    // and knee flush against Nyquist (>= nyquist - 500 Hz). Always outputs Inconclusive (zero false-fake risk).
+    private const double FlatMirrorMinUpperMeanDbFS = -95.0;
 
     // 48 kHz ultrasonic tail guard & 44.1 kHz steep-drop guard
     private const double Tail48kMinP22_5kDbFS = -102.0;
@@ -450,9 +453,10 @@ public static class NyquistSpectrumAnalyzer
             p22_5k <= DeadSilenceBandDbFS &&
             pNyquist <= DeadSilenceBandDbFS;
 
-        // Deteksi cermin pita lebar nyaris datar dari resampler non-ideal (menjaga agar tidak lolos sebagai Verified)
+        // FORENSIC #7.1: Deteksi cermin pita lebar nyaris datar dari resampler non-ideal pada >= 48 kHz
+        // (termasuk 48 kHz dan Hi-Res; menahan berkas sebagai Inconclusive agar tidak lolos sebagai Verified/Acoustic).
         bool isFlatBroadbandMirror =
-            sampleRate >= 88_200 &&
+            sampleRate >= 48_000 &&
             imagingCorrelation >= FlatMirrorMinCorrelation &&
             imagingAttenuationDb <= FlatMirrorMaxAttenuationDb &&
             imagingUpperMeanDb > FlatMirrorMinUpperMeanDbFS &&
@@ -641,7 +645,7 @@ public static class NyquistSpectrumAnalyzer
                 detectedCutoffHz = CdNyquistHz;
                 explanation = $"Wadah 48.0 kHz 24-bit, namun pita 22–24 kHz menunjukkan lantai derau datar setara dither 16-bit ({noiseFloorDbFS:F1} dBFS, σ={noiseStdDevDb:F1} dB). Konsisten dengan ekspor dari master 16-bit.";
             }
-            else if (isImagingDetected)
+            else if (isImagingDetected || isFlatBroadbandMirror)
             {
                 verdict = AuthenticityVerdict.Inconclusive;
                 detectedCutoffHz = CdNyquistHz;
