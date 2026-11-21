@@ -394,6 +394,23 @@ public sealed class ForensicV202RegressionTests : IDisposable
         Assert.Equal(AuthenticityVerdict.SuspectedUpscaledLossy, report.Verdict);
     }
 
+    [Fact]
+    public void Forensic3_3_Mp3UpsampledTo24_96_PrioritizesLossyOverUpscaledFromCd()
+    {
+        // 24/96 container whose content is brickwalled at 16.5 kHz into dead digital silence (-160 dBFS)
+        // must classify as SuspectedUpscaledLossy, NOT UpscaledFromCd.
+        string path = WriteBroadbandSineBankWav(
+            "mp3_128k_in_24_96.wav",
+            sampleRate: 96_000,
+            bitsPerSample: 24,
+            durationSeconds: 3.0,
+            maxFreqHz: 16_500.0,
+            amplitudeScale: 0.65);
+
+        var report = NyquistSpectrumAnalyzer.Analyze(path);
+        Assert.Equal(AuthenticityVerdict.SuspectedUpscaledLossy, report.Verdict);
+    }
+
     private static double[] BuildHybridNotchFrequencies(out double[] phases, Random rng)
     {
         var list = new System.Collections.Generic.List<double>();

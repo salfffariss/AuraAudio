@@ -534,6 +534,17 @@ public static class NyquistSpectrumAnalyzer
                 detectedCutoffHz = (uint)Math.Min(nyquistLimitHz, Math.Max(44_000u, upperEnvelopeReachHz));
                 explanation = $"Spektrum konsisten dengan produksi studio campuran (hybrid): terdapat penurunan nyata di batas CD 20–22.5 kHz ({p20k - p22_5k:F1} dB) disertai energi ultrasonik aktif di atas 35 kHz. {AacOpusCaveatId}";
             }
+            else if (isPrimaryMp3CutoffHiRes || isDeadZeroLossyCutoff)
+            {
+                // FORENSIC #3.3: Lossy brickwall evidence (< 19.5 kHz) takes priority over UpscaledFromCd
+                // so an MP3-128k track re-encoded to 24/96 is classified as SuspectedUpscaledLossy, not UpscaledFromCd.
+                verdict = AuthenticityVerdict.SuspectedUpscaledLossy;
+                detectedCutoffHz = isPrimaryMp3CutoffHiRes ? detectedKneeHz : deadZeroLossyCutoffHz;
+                double repSteep = isPrimaryMp3CutoffHiRes ? kneeSteepness : deadZeroLossySteepness;
+                double repDrop = isPrimaryMp3CutoffHiRes ? dropAcrossKnee : deadZeroLossyDropDb;
+                explanation = $"Terdeteksi pemotongan spektrum tajam pada wadah {sourceSpec.FormattedBadge} di ~{detectedCutoffHz / 1000.0:F1} kHz " +
+                              $"(kemiringan {repSteep:F1} dB/oktaf, penurunan {repDrop:F1} dB). Kemungkinan hasil konversi dari lossy (MP3/AAC), atau sumber dengan bandwidth terbatas.";
+            }
             else if (isCdBrickwallHiRes)
             {
                 verdict = AuthenticityVerdict.UpscaledFromCd;
@@ -542,15 +553,6 @@ public static class NyquistSpectrumAnalyzer
                     ? "Kemungkinan besar konsisten dengan upsampling dari master CD 44.1 kHz"
                     : "Konsisten dengan upsampling dari master CD 44.1 kHz";
                 explanation = $"Wadah berlabel {sourceSpec.FormattedBadge}, namun energi spektral turun tajam di sekitar batas CD 22.05 kHz (kemiringan {slopeCdTransition:F1} dB/oktaf, tebing {cliffDropDb:F1} dB @ {cliffHz / 1000.0:F2} kHz, drop knee {dropAcrossKnee:F1} dB, level @ 22.05k: {p22k:F1} dBFS). {hedge}.";
-            }
-            else if (isPrimaryMp3CutoffHiRes || isDeadZeroLossyCutoff)
-            {
-                verdict = AuthenticityVerdict.SuspectedUpscaledLossy;
-                detectedCutoffHz = isPrimaryMp3CutoffHiRes ? detectedKneeHz : deadZeroLossyCutoffHz;
-                double repSteep = isPrimaryMp3CutoffHiRes ? kneeSteepness : deadZeroLossySteepness;
-                double repDrop = isPrimaryMp3CutoffHiRes ? dropAcrossKnee : deadZeroLossyDropDb;
-                explanation = $"Terdeteksi pemotongan spektrum tajam pada wadah {sourceSpec.FormattedBadge} di ~{detectedCutoffHz / 1000.0:F1} kHz " +
-                              $"(kemiringan {repSteep:F1} dB/oktaf, penurunan {repDrop:F1} dB). Kemungkinan hasil konversi dari lossy (MP3/AAC), atau sumber dengan bandwidth terbatas.";
             }
             else if (bitsPerSample >= 24 && isZeroPadded)
             {
@@ -621,6 +623,14 @@ public static class NyquistSpectrumAnalyzer
                 detectedCutoffHz = CdNyquistHz;
                 explanation = $"Perlu cek manual: terdeteksi korelasi cermin pencitraan (r={imagingCorrelation:F2}, atenuasi {imagingAttenuationDb:F1} dB, level {imagingUpperMeanDb:F1} dBFS) di 22–24 kHz yang konsisten dengan resampler 44.1 ke 48 kHz.";
             }
+            else if (isPrimaryMp3Cutoff48k || isDeadZeroLossyCutoff)
+            {
+                verdict = AuthenticityVerdict.SuspectedUpscaledLossy;
+                detectedCutoffHz = isPrimaryMp3Cutoff48k ? detectedKneeHz : deadZeroLossyCutoffHz;
+                double repSteep = isPrimaryMp3Cutoff48k ? kneeSteepness : deadZeroLossySteepness;
+                double repDrop = isPrimaryMp3Cutoff48k ? dropAcrossKnee : deadZeroLossyDropDb;
+                explanation = $"Terdeteksi pemotongan spektrum tajam di ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {repSteep:F1} dB/oktaf, penurunan {repDrop:F1} dB). Kemungkinan hasil konversi dari lossy (MP3/AAC), atau sumber dengan bandwidth terbatas.";
+            }
             else if (isCdBrickwall48k)
             {
                 verdict = AuthenticityVerdict.UpscaledFromCd;
@@ -629,14 +639,6 @@ public static class NyquistSpectrumAnalyzer
                     ? "Kemungkinan besar konsisten dengan upsampling dari master CD 44.1 kHz"
                     : "Konsisten dengan upsampling dari master CD 44.1 kHz";
                 explanation = $"Wadah 48.0 kHz, namun spektrum turun tajam di sekitar batas CD 22.05 kHz (kemiringan {slopeCdTransition:F1} dB/oktaf, drop knee {dropAcrossKnee:F1} dB, level @ 22.05k: {p22k:F1} dBFS). {hedge}.";
-            }
-            else if (isPrimaryMp3Cutoff48k || isDeadZeroLossyCutoff)
-            {
-                verdict = AuthenticityVerdict.SuspectedUpscaledLossy;
-                detectedCutoffHz = isPrimaryMp3Cutoff48k ? detectedKneeHz : deadZeroLossyCutoffHz;
-                double repSteep = isPrimaryMp3Cutoff48k ? kneeSteepness : deadZeroLossySteepness;
-                double repDrop = isPrimaryMp3Cutoff48k ? dropAcrossKnee : deadZeroLossyDropDb;
-                explanation = $"Terdeteksi pemotongan spektrum tajam di ~{detectedCutoffHz / 1000.0:F1} kHz (kemiringan {repSteep:F1} dB/oktaf, penurunan {repDrop:F1} dB). Kemungkinan hasil konversi dari lossy (MP3/AAC), atau sumber dengan bandwidth terbatas.";
             }
             else if (bitsPerSample >= 24 && isZeroPadded)
             {
