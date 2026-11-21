@@ -405,7 +405,9 @@ public class SettingsViewModel : ViewModelBase
 
             var result = await Task.Run(() => scanner.ScanDirectoriesAsync(folderList, progress, ct), ct);
             ScanProgressPercent = 100;
-            ScanStatusText = $"Scan complete: {result.Added} indexed, {result.Skipped} unchanged ({result.Elapsed.TotalSeconds:F1}s).";
+            ScanStatusText = result.Removed > 0
+                ? $"Scan complete: {result.Added} indexed, {result.Skipped} unchanged, {result.Removed} removed ({result.Elapsed.TotalSeconds:F1}s)."
+                : $"Scan complete: {result.Added} indexed, {result.Skipped} unchanged ({result.Elapsed.TotalSeconds:F1}s).";
             RefreshEngineStats();
             _onLibraryMutated?.Invoke();
         }
