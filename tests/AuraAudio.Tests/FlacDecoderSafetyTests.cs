@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using AuraAudio.Audio;
 using AuraAudio.Audio.Authenticity;
@@ -12,6 +13,7 @@ using AuraAudio.Audio.Controller;
 using AuraAudio.Audio.Flac;
 using AuraAudio.Core.Models;
 using AuraAudio.Database;
+using AuraAudio.Metadata;
 using AuraAudio.Scanner;
 using NAudio.Wave;
 using Xunit;
@@ -345,8 +347,138 @@ public sealed class FlacDecoderSafetyTests : IDisposable
         Assert.Equal(PlaybackStatus.Stopped, controller.Status);
     }
 
+    [Fact]
+    public void Id3v2PrefixedFlac_WithoutFooter_WithFooter_WithPadding_AndTags_DecodesBitExact()
+    {
+        int[] samplesL = Enumerable.Range(0, 512).Select(i => (int)(Math.Sin(i * 0.11) * 24_000)).ToArray();
+        int[] samplesR = Enumerable.Range(0, 512).Select(i => (int)(Math.Cos(i * 0.19) * 22_000)).ToArray();
+        byte[] rawFlac = SyntheticFlacBuilder.BuildVerbatimFlac(44_100, 16, [samplesL, samplesR], [256, 256]);
+        byte[] expectedPcm = SyntheticFlacBuilder.EncodeCanonicalPcm([samplesL, samplesR], 16);
+        byte[] expectedMd5 = MD5.HashData(expectedPcm);
+
+        // 1. Standard ID3v2.3 tag with TIT2 + TPE1 frames -> verify both PCM decode AND TagLib/AudioMetadataReader tag reading
+        byte[] id3v23 = SyntheticFlacBuilder.BuildId3v2Tag(
+            majorVersion: 3,
+            includeFooter: false,
+            title: "Kind Of Synthetic Magic",
+            artist: "Aura Test Ensemble");
+        byte[] withId3v23 = Concat(id3v23, rawFlac);
+
+        string id3FilePath = Path.Combine(_tempDir, "id3v23_prefixed.flac");
+        File.WriteAllBytes(id3FilePath, withId3v23);
+
+        using (var ws = new SafeFlacWaveStream(id3FilePath))
+        {
+            byte[] decoded = DrainAllBytes(ws);
+            Assert.Equal(expectedPcm, decoded);
+            Assert.Equal(expectedMd5, MD5.HashData(decoded));
+        }
+
+        var metadata = new AudioMetadataReader().ReadFile(id3FilePath);
+        Assert.Equal("Kind Of Synthetic Magic", metadata.Track.Title);
+        Assert.Equal("Aura Test Ensemble", metadata.Track.Artist);
+
+        // 2. ID3v2.4 tag with 10-byte footer (flags = 0x10) + 64 bytes of zero padding before "fLaC"
+        byte[] id3v24WithFooter = SyntheticFlacBuilder.BuildId3v2Tag(
+            majorVersion: 4,
+            includeFooter: true,
+            title: "Footer Track",
+            artist: "Footer Artist");
+        byte[] zeroPadding = new byte[64];
+        byte[] withFooterAndPad = Concat(id3v24WithFooter, zeroPadding, rawFlac);
+
+        using (var ms = new MemoryStream(withFooterAndPad, writable: false))
+        using (var ws = new SafeFlacWaveStream(ms))
+        {
+            byte[] decoded = DrainAllBytes(ws);
+            Assert.Equal(expectedPcm, decoded);
+        }
+
+        // 3. Stacked double ID3v2 tags + trailing ID3v1 tag at EOF
+        byte[] id3v1 = new byte[128];
+        id3v1[0] = (byte)'T'; id3v1[1] = (byte)'A'; id3v1[2] = (byte)'G';
+        byte[] stackedAndTrailed = Concat(id3v23, id3v24WithFooter, rawFlac, id3v1);
+
+        using (var ms = new MemoryStream(stackedAndTrailed, writable: false))
+        using (var ws = new SafeFlacWaveStream(ms))
+        {
+            byte[] decoded = DrainAllBytes(ws);
+            Assert.Equal(expectedPcm, decoded);
+        }
+
+        // 4. Malformed ID3v2 (invalid synchsafe MSB bit set / truncated) -> throws InvalidDataException cleanly
+        byte[] badSyncsafe = (byte[])withId3v23.Clone();
+        badSyncsafe[9] |= 0x80;
+        Assert.Throws<InvalidDataException>(() =>
+        {
+            using var ms = new MemoryStream(badSyncsafe, writable: false);
+            using var ws = new SafeFlacWaveStream(ms);
+        });
+
+        byte[] truncatedId3 = withId3v23[..15];
+        Assert.Throws<InvalidDataException>(() =>
+        {
+            using var ms = new MemoryStream(truncatedId3, writable: false);
+            using var ws = new SafeFlacWaveStream(ms);
+        });
+    }
+
+    [Theory]
+    [InlineData(8, 16)]
+    [InlineData(12, 16)]
+    [InlineData(15, 16)]
+    [InlineData(20, 24)]
+    [InlineData(32, 32)]
+    public void NonStandardBitDepths_DecodeToFullScale_NeverSilent_AndMatchCanonicalMd5(int sourceBits, int expectedWaveBits)
+    {
+        const int sampleRate = 44_100;
+        const int sampleCount = 2048;
+        double fullScale = Math.Pow(2.0, sourceBits - 1) - 1.0;
+
+        int[] mono = new int[sampleCount];
+        for (int i = 0; i < sampleCount; i++)
+        {
+            double v = Math.Round(Math.Sin(2.0 * Math.PI * 1000.0 * i / sampleRate) * fullScale * 0.85);
+            mono[i] = (int)Math.Clamp(v, -Math.Pow(2.0, sourceBits - 1), fullScale);
+        }
+
+        byte[] flac = SyntheticFlacBuilder.BuildVerbatimFlac(
+            sampleRate: sampleRate,
+            bitsPerSample: sourceBits,
+            channelSamples: [mono],
+            frameSizes: [512, 512, 512, 512]);
+        byte[] expectedCanonicalPcm = SyntheticFlacBuilder.EncodeCanonicalPcm([mono], sourceBits);
+        byte[] expectedMd5 = MD5.HashData(expectedCanonicalPcm);
+
+        string flacPath = Path.Combine(_tempDir, $"depth_{sourceBits}bit.flac");
+        File.WriteAllBytes(flacPath, flac);
+
+        byte[] decodedPcm;
+        using (var ws = new SafeFlacWaveStream(flacPath))
+        {
+            Assert.Equal(sourceBits, ws.SourceBitsPerSample);
+            Assert.Equal(expectedWaveBits, ws.WaveFormat.BitsPerSample);
+            Assert.Equal(WaveFormatEncoding.Pcm, ws.WaveFormat.Encoding);
+            decodedPcm = DrainAllBytes(ws);
+        }
+
+        // 1. Verify full-scale RMS level in output container (~ -4.4 dBFS for 0.85 peak sine; NEVER silent -160 dBFS!)
+        double rmsDbFs = ComputeRmsDbFs(decodedPcm, expectedWaveBits);
+        Assert.InRange(rmsDbFs, -6.5, -2.5);
+
+        // 2. Verify RFC 9639 canonical MD5 matches bit-for-bit after un-shifting MSB-aligned samples
+        byte[] canonicalUnshifted = UnshiftToCanonicalPcm(decodedPcm, expectedWaveBits, sourceBits);
+        Assert.Equal(expectedCanonicalPcm, canonicalUnshifted);
+        Assert.Equal(expectedMd5, MD5.HashData(canonicalUnshifted));
+
+        // 3. Verify AudioDecoderFactory + NyquistSpectrumAnalyzer pipeline handles it cleanly
+        var report = NyquistSpectrumAnalyzer.Analyze(flacPath);
+        Assert.NotNull(report);
+        Assert.Equal(AudioCodec.FLAC, report.SourceSpec.Codec);
+    }
+
     [SkippableFact]
-    public void ExternalCorpus_Critical1_ZeroFatalCrashes_Faulty09Fast_SubsetMd5Match()
+    public void ExternalCorpus_Critical1And2_ZeroCrashes_All64SubsetMd5_Id3v2AndBitDepths()
     {
         string? corpusRoot = Environment.GetEnvironmentVariable("AURA_BENCHMARK_CORPUS");
         Skip.If(string.IsNullOrWhiteSpace(corpusRoot) || !Directory.Exists(corpusRoot),
@@ -366,25 +498,144 @@ public sealed class FlacDecoderSafetyTests : IDisposable
             Assert.True(sw.ElapsedMilliseconds < 500, $"faulty/09 took {sw.ElapsedMilliseconds}ms.");
         }
 
-        // 2. Every file in ietf/subset with 16/24/32-bit must decode cleanly with exact STREAMINFO MD5
+        // 2. ALL 64/64 IETF subset files (including 8, 12, 20-bit and Rice escape code 0) must decode with exact canonical MD5
         string subsetDir = Path.Combine(corpusRoot!, "ietf-flac-test-files", "subset");
         if (Directory.Exists(subsetDir))
         {
-            foreach (string file in Directory.GetFiles(subsetDir, "*.flac").OrderBy(x => x))
+            string[] subsetFiles = Directory.GetFiles(subsetDir, "*.flac").OrderBy(x => x).ToArray();
+            Assert.Equal(64, subsetFiles.Length);
+            foreach (string file in subsetFiles)
             {
-                using var dec = new SafeFlacDecoder(file);
-                if (dec.BitsPerSample is not (16 or 24 or 32)) continue;
-                byte[]? expectedMd5 = dec.ExpectedMd5;
-                dec.Dispose();
-
-                using var ws = new SafeFlacWaveStream(file);
-                byte[] pcm = DrainAllBytes(ws);
-                if (expectedMd5 != null)
-                {
-                    Assert.Equal(expectedMd5, MD5.HashData(pcm));
-                }
+                VerifyFlacCanonicalMd5(file);
             }
         }
+
+        // 3. IETF uncommon 32-bit (05) and 15-bit (07) must decode non-empty with exact canonical MD5
+        string uncommon05 = Path.Combine(corpusRoot!, "ietf-flac-test-files", "uncommon", "05 - 32bps audio.flac");
+        string uncommon07 = Path.Combine(corpusRoot!, "ietf-flac-test-files", "uncommon", "07 - 15 bit per sample.flac");
+        if (File.Exists(uncommon05)) VerifyFlacCanonicalMd5(uncommon05);
+        if (File.Exists(uncommon07)) VerifyFlacCanonicalMd5(uncommon07);
+
+        // 4. All 5 complete ID3v2-prefixed FLACs must decode with exact MD5 AND read metadata via AudioMetadataReader
+        string[] completeId3Flacs =
+        [
+            Path.Combine(corpusRoot!, "github_repos", "Borewit__music-metadata", "test__samples__a kind of magic.flac"),
+            Path.Combine(corpusRoot!, "github_repos", "Serial-ATA__lofty-rs", "lofty__tests__files__assets__flac_with_id3v2.flac"),
+            Path.Combine(corpusRoot!, "github_repos", "androidx__media", "libraries__test_data__src__test__assets__media__flac__bear_with_id3.flac"),
+            Path.Combine(corpusRoot!, "github_repos", "devsnd__tinytag", "tinytag__tests__samples__with_padded_id3_header.flac"),
+            Path.Combine(corpusRoot!, "github_repos", "devsnd__tinytag", "tinytag__tests__samples__with_padded_id3_header2.flac"),
+        ];
+        var reader = new AudioMetadataReader();
+        foreach (string path in completeId3Flacs)
+        {
+            if (!File.Exists(path)) continue;
+            VerifyFlacCanonicalMd5(path);
+            var meta = reader.ReadFile(path);
+            Assert.False(string.IsNullOrWhiteSpace(meta.Track.Title), $"Metadata title empty for {Path.GetFileName(path)}");
+        }
+
+        // 5. Truncated/fuzzed ID3v2 FLACs must fail gracefully with managed exceptions (never crash)
+        string[] corruptId3Flacs =
+        [
+            Path.Combine(corpusRoot!, "github_repos", "mewkiz__flac", "testdata__id3.flac"),
+            Path.Combine(corpusRoot!, "github_repos", "Serial-ATA__lofty-rs", "lofty__tests__fuzz__assets__flacfile_read_from__flac_with_id3v2_IDX_39_RAND_108668567929800767822112.flac"),
+        ];
+        foreach (string path in corruptId3Flacs)
+        {
+            if (!File.Exists(path)) continue;
+            Exception? ex = Record.Exception(() =>
+            {
+                using var ws = new SafeFlacWaveStream(path);
+                DrainAllBytes(ws);
+            });
+            Assert.True(ex is InvalidDataException or EndOfStreamException,
+                $"Expected managed failure for {Path.GetFileName(path)}, got {ex?.GetType().Name ?? "none"}.");
+        }
+    }
+
+    private static void VerifyFlacCanonicalMd5(string filePath)
+    {
+        byte[]? expectedMd5;
+        int srcBits;
+        using (var dec = new SafeFlacDecoder(filePath))
+        {
+            expectedMd5 = dec.ExpectedMd5;
+            srcBits = dec.BitsPerSample;
+        }
+
+        using var ws = new SafeFlacWaveStream(filePath);
+        byte[] pcm = DrainAllBytes(ws);
+        Assert.True(pcm.Length > 0, $"Decoded 0 bytes for {Path.GetFileName(filePath)}");
+        if (expectedMd5 != null)
+        {
+            byte[] canonical = UnshiftToCanonicalPcm(pcm, ws.WaveFormat.BitsPerSample, srcBits);
+            Assert.Equal(expectedMd5, MD5.HashData(canonical));
+        }
+    }
+
+    private static byte[] UnshiftToCanonicalPcm(byte[] pcm, int waveBits, int sourceBits)
+    {
+        int inBps = waveBits / 8;
+        int outBps = (sourceBits + 7) / 8;
+        int shiftRight = waveBits - sourceBits;
+        if (inBps == outBps && shiftRight == 0) return pcm;
+
+        int sampleCount = pcm.Length / inBps;
+        byte[] result = new byte[sampleCount * outBps];
+        int inIdx = 0;
+        int outIdx = 0;
+        for (int i = 0; i < sampleCount; i++)
+        {
+            int s = inBps switch
+            {
+                2 => (short)(pcm[inIdx] | (pcm[inIdx + 1] << 8)),
+                3 => ((pcm[inIdx] | (pcm[inIdx + 1] << 8) | (pcm[inIdx + 2] << 16)) << 8) >> 8,
+                _ => pcm[inIdx] | (pcm[inIdx + 1] << 8) | (pcm[inIdx + 2] << 16) | (pcm[inIdx + 3] << 24)
+            };
+            inIdx += inBps;
+            s >>= shiftRight;
+            for (int b = 0; b < outBps; b++)
+            {
+                result[outIdx++] = (byte)((s >> (b * 8)) & 0xFF);
+            }
+        }
+        return result;
+    }
+
+    private static double ComputeRmsDbFs(byte[] pcm, int waveBits)
+    {
+        int bps = waveBits / 8;
+        int count = pcm.Length / bps;
+        double scale = Math.Pow(2.0, waveBits - 1);
+        double sumSq = 0.0;
+        int idx = 0;
+        for (int i = 0; i < count; i++)
+        {
+            int s = bps switch
+            {
+                2 => (short)(pcm[idx] | (pcm[idx + 1] << 8)),
+                3 => ((pcm[idx] | (pcm[idx + 1] << 8) | (pcm[idx + 2] << 16)) << 8) >> 8,
+                _ => pcm[idx] | (pcm[idx + 1] << 8) | (pcm[idx + 2] << 16) | (pcm[idx + 3] << 24)
+            };
+            idx += bps;
+            double norm = s / scale;
+            sumSq += norm * norm;
+        }
+        double rms = Math.Sqrt(sumSq / Math.Max(1, count));
+        return rms > 1e-12 ? 20.0 * Math.Log10(rms) : -160.0;
+    }
+
+    private static byte[] Concat(params byte[][] arrays)
+    {
+        int total = arrays.Sum(a => a.Length);
+        byte[] result = new byte[total];
+        int offset = 0;
+        foreach (byte[] arr in arrays)
+        {
+            Buffer.BlockCopy(arr, 0, result, offset, arr.Length);
+            offset += arr.Length;
+        }
+        return result;
     }
 
     private static byte[] DrainAllBytes(Stream stream)
@@ -441,6 +692,62 @@ public sealed class FlacDecoderSafetyTests : IDisposable
     /// </summary>
     internal static class SyntheticFlacBuilder
     {
+        public static byte[] BuildId3v2Tag(byte majorVersion, bool includeFooter, string title, string artist)
+        {
+            using var body = new MemoryStream();
+            WriteTextFrame(body, majorVersion, "TIT2", title);
+            WriteTextFrame(body, majorVersion, "TPE1", artist);
+            byte[] bodyBytes = body.ToArray();
+            int size = bodyBytes.Length;
+
+            byte flags = includeFooter ? (byte)0x10 : (byte)0x00;
+            byte[] header =
+            [
+                (byte)'I', (byte)'D', (byte)'3',
+                majorVersion, 0x00,
+                flags,
+                (byte)((size >> 21) & 0x7F),
+                (byte)((size >> 14) & 0x7F),
+                (byte)((size >> 7) & 0x7F),
+                (byte)(size & 0x7F)
+            ];
+
+            using var full = new MemoryStream();
+            full.Write(header, 0, header.Length);
+            full.Write(bodyBytes, 0, bodyBytes.Length);
+            if (includeFooter)
+            {
+                byte[] footer = (byte[])header.Clone();
+                footer[0] = (byte)'3'; footer[1] = (byte)'D'; footer[2] = (byte)'I';
+                full.Write(footer, 0, footer.Length);
+            }
+            return full.ToArray();
+        }
+
+        private static void WriteTextFrame(Stream s, byte majorVersion, string frameId, string text)
+        {
+            byte[] textBytes = Encoding.Latin1.GetBytes(text);
+            int frameSize = 1 + textBytes.Length; // 0x00 (ISO-8859-1) + text
+            foreach (char c in frameId) s.WriteByte((byte)c);
+            if (majorVersion >= 4)
+            {
+                s.WriteByte((byte)((frameSize >> 21) & 0x7F));
+                s.WriteByte((byte)((frameSize >> 14) & 0x7F));
+                s.WriteByte((byte)((frameSize >> 7) & 0x7F));
+                s.WriteByte((byte)(frameSize & 0x7F));
+            }
+            else
+            {
+                s.WriteByte((byte)((frameSize >> 24) & 0xFF));
+                s.WriteByte((byte)((frameSize >> 16) & 0xFF));
+                s.WriteByte((byte)((frameSize >> 8) & 0xFF));
+                s.WriteByte((byte)(frameSize & 0xFF));
+            }
+            s.WriteByte(0); s.WriteByte(0); // flags
+            s.WriteByte(0); // ISO-8859-1 encoding byte
+            s.Write(textBytes, 0, textBytes.Length);
+        }
+
         public static byte[] EncodeCanonicalPcm(int[][] channelSamples, int bitsPerSample)
         {
             int channels = channelSamples.Length;

@@ -76,20 +76,23 @@ public sealed class SafeFlacWaveStream : WaveStream
 
         int srcBits = _decoder.BitsPerSample;
         int outBits;
-        if (srcBits == 16)
+        if (srcBits <= 16)
         {
+            // Scale 4..16-bit (including 8, 12, 15, 16-bit) MSB-aligned into standard 16-bit signed PCM
             outBits = 16;
-            _bitShiftLeft = 0;
+            _bitShiftLeft = 16 - srcBits;
         }
-        else if (srcBits == 24)
+        else if (srcBits <= 24)
         {
+            // Scale 17..24-bit (including 20, 24-bit) MSB-aligned into standard 24-bit signed PCM
             outBits = 24;
-            _bitShiftLeft = 0;
+            _bitShiftLeft = 24 - srcBits;
         }
-        else if (srcBits == 32)
+        else if (srcBits <= 32)
         {
+            // Scale 25..32-bit (including 32-bit) MSB-aligned into 32-bit signed integer PCM
             outBits = 32;
-            _bitShiftLeft = 0;
+            _bitShiftLeft = 32 - srcBits;
         }
         else
         {

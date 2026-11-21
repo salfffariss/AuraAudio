@@ -45,6 +45,8 @@ public sealed class SafeFlacDecoder : IDisposable
     private const int MaxRiceFallbackUnaryZeros = 1_048_576;
     private const int MaxBlockSizeAllowed = 65_535;
     private const int MaxChannelsAllowed = 8;
+    private const int MaxLeadingId3Tags = 16;
+    private const int MaxId3PaddingBytes = 1_048_576;
 
     private readonly BufferedBitReader _reader;
     private readonly bool _leaveOpen;
@@ -121,6 +123,8 @@ public sealed class SafeFlacDecoder : IDisposable
     {
         hasMd5 = false;
 
+        SkipId3v2Prefix();
+
         if (_reader.Read(32) != 0x664C6143UL) // "fLaC"
         {
             throw new InvalidDataException("Invalid FLAC file: \"fLaC\" stream marker not found.");
@@ -195,6 +199,57 @@ public sealed class SafeFlacDecoder : IDisposable
         {
             seekList.Sort((a, b) => a.SampleNumber.CompareTo(b.SampleNumber));
             SeekPoints = seekList.ToArray();
+        }
+    }
+
+    private void SkipId3v2Prefix()
+    {
+        // Some real-world FLAC files carry one or more leading ID3v2 tags (optionally followed by
+        // a 10-byte ID3v2.4 footer and/or zero padding) before the "fLaC" stream marker.
+        for (int tagCount = 0; tagCount < MaxLeadingId3Tags; tagCount++)
+        {
+            if (_reader.HasReachedEnd || (_reader.Peek32() >> 8) != 0x494433UL) // "ID3"
+            {
+                break;
+            }
+
+            _reader.Skip(24); // "ID3"
+            byte majorVer = (byte)_reader.Read(8);
+            byte minorVer = (byte)_reader.Read(8);
+            byte flags = (byte)_reader.Read(8);
+            byte s0 = (byte)_reader.Read(8);
+            byte s1 = (byte)_reader.Read(8);
+            byte s2 = (byte)_reader.Read(8);
+            byte s3 = (byte)_reader.Read(8);
+
+            if (majorVer == 0xFF || minorVer == 0xFF || ((s0 | s1 | s2 | s3) & 0x80) != 0)
+            {
+                throw new InvalidDataException("Invalid ID3v2 header preceding FLAC stream.");
+            }
+
+            long tagBodySize = ((long)s0 << 21) | ((long)s1 << 14) | ((long)s2 << 7) | s3;
+            if ((flags & 0x10) != 0)
+            {
+                tagBodySize += 10; // ID3v2.4 footer present
+            }
+
+            if (_reader.StreamLength >= 0 && _reader.BytePosition + tagBodySize > _reader.StreamLength)
+            {
+                throw new InvalidDataException("Truncated ID3v2 tag preceding FLAC stream.");
+            }
+
+            _reader.SkipBytes(tagBodySize);
+
+            // Skip optional zero padding bytes between ID3v2 tag and "fLaC"
+            int zeroSkipped = 0;
+            while (!_reader.HasReachedEnd && (_reader.Peek32() >> 24) == 0)
+            {
+                _reader.Skip(8);
+                if (++zeroSkipped > MaxId3PaddingBytes)
+                {
+                    throw new InvalidDataException("Excessive zero padding after ID3v2 tag before FLAC stream.");
+                }
+            }
         }
     }
 

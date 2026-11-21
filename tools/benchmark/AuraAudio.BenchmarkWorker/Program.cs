@@ -61,7 +61,9 @@ internal static class Program
 
                 int channels = Math.Max(1, wf.Channels);
                 int bytesPerSample = wf.BlockAlign > 0 ? wf.BlockAlign / channels : Math.Max(1, wf.BitsPerSample / 8);
-                int expectedMd5BytesPerSample = si is not null ? (si.BitsPerSample + 7) / 8 : bytesPerSample;
+                int srcBits = si is not null ? si.BitsPerSample : wf.BitsPerSample;
+                int expectedMd5BytesPerSample = (srcBits + 7) / 8;
+                int shiftRight = Math.Max(0, wf.BitsPerSample - srcBits);
 
                 using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
                 byte[] buf = new byte[Math.Max(65536, wf.BlockAlign * 4096)];
@@ -70,7 +72,8 @@ internal static class Program
                     buf = new byte[(buf.Length / wf.BlockAlign) * wf.BlockAlign];
                 }
 
-                // Temporary buffer if decoder outputs 4-byte padded slots for 24-bit samples
+                // Temporary buffer when un-shifting MSB-aligned non-standard bit depths (e.g. 8/12/15/20-bit)
+                // back to RFC 9639 canonical ceil(srcBits/8)-byte signed little-endian PCM for STREAMINFO MD5 checks
                 byte[]? packed = null;
                 int read;
                 while ((read = stream.Read(buf, 0, buf.Length)) > 0)
@@ -78,22 +81,31 @@ internal static class Program
                     decodedPcmBytes += read;
                     if (isFlac && si is not null && wf.Encoding == WaveFormatEncoding.Pcm)
                     {
-                        if (bytesPerSample == expectedMd5BytesPerSample)
+                        if (bytesPerSample == expectedMd5BytesPerSample && shiftRight == 0)
                         {
                             md5.AppendData(buf, 0, read);
                         }
-                        else if (bytesPerSample == 4 && expectedMd5BytesPerSample == 3)
+                        else if (bytesPerSample is 2 or 3 or 4 && expectedMd5BytesPerSample is >= 1 and <= 4)
                         {
-                            int sampleCount = read / 4;
-                            int need = sampleCount * 3;
+                            int sampleCount = read / bytesPerSample;
+                            int need = sampleCount * expectedMd5BytesPerSample;
                             if (packed is null || packed.Length < need) packed = new byte[need];
-                            // Standard 24-in-32 little-endian: check if MSB-aligned (byte 0 == 0) vs LSB-aligned
-                            // Note: FlacReader emits 3-byte packed for 24-bit; this branch handles 4-byte containers if encountered.
+                            int inIdx = 0;
+                            int outIdx = 0;
                             for (int i = 0; i < sampleCount; i++)
                             {
-                                packed[i * 3] = buf[i * 4];
-                                packed[i * 3 + 1] = buf[i * 4 + 1];
-                                packed[i * 3 + 2] = buf[i * 4 + 2];
+                                int s = bytesPerSample switch
+                                {
+                                    2 => (short)(buf[inIdx] | (buf[inIdx + 1] << 8)),
+                                    3 => ((buf[inIdx] | (buf[inIdx + 1] << 8) | (buf[inIdx + 2] << 16)) << 8) >> 8,
+                                    _ => buf[inIdx] | (buf[inIdx + 1] << 8) | (buf[inIdx + 2] << 16) | (buf[inIdx + 3] << 24)
+                                };
+                                inIdx += bytesPerSample;
+                                s >>= shiftRight;
+                                for (int b = 0; b < expectedMd5BytesPerSample; b++)
+                                {
+                                    packed[outIdx++] = (byte)((s >> (b * 8)) & 0xFF);
+                                }
                             }
                             md5.AppendData(packed, 0, need);
                         }
