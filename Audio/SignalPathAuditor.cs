@@ -43,9 +43,10 @@ public static class SignalPathAuditor
         // =========================================================================================
         // TAHAP 1: BERKAS SUMBER ASLI (SOURCE FILE)
         // =========================================================================================
+        string channelLabel = AudioStreamSpec.FormatChannelLabel(sourceSpec.Channels);
         string sourceDesc = sourceSpec.IsDsd
-            ? $"{sourceSpec.FormattedBadge} (~{sourceSpec.BitrateKbps} kbps)"
-            : $"{(int)sourceSpec.BitDepth}-bit / {sourceSpec.SampleRateHz / 1000.0:F1} kHz {sourceSpec.Codec} (Stereo, ~{sourceSpec.BitrateKbps} kbps)";
+            ? $"{sourceSpec.FormattedResolution} ({channelLabel}, {sourceSpec.FormattedBitrate})"
+            : $"{sourceSpec.FormattedResolution} {sourceSpec.Codec} ({channelLabel}, {sourceSpec.FormattedBitrate})";
 
         steps.Add(new SignalStep(
             SignalStepType.SourceFile,
@@ -62,7 +63,7 @@ public static class SignalPathAuditor
             steps.Add(new SignalStep(
                 SignalStepType.Decoder,
                 "DoP v1.1 Bitstream Encapsulation",
-                "Aliran 1-bit DSD dikemas murni ke dalam frame 24-bit / 176.4 kHz DoP dengan penanda 0x05/0xFA. Bit audio 100% utuh tanpa modifikasi.",
+                $"Aliran 1-bit DSD dikemas murni ke dalam frame {activeStream.WaveFormat.BitsPerSample}-bit / {AudioStreamSpec.FormatSampleRateKhz((uint)activeStream.WaveFormat.SampleRate)} DoP dengan penanda 0x05/0xFA. Bit audio 100% utuh tanpa modifikasi.",
                 SignalPathQuality.BitPerfect
             ));
         }
@@ -71,25 +72,35 @@ public static class SignalPathAuditor
             steps.Add(new SignalStep(
                 SignalStepType.DspProcessing,
                 "128-Tap Windowed-Sinc FIR Decimation",
-                "Filter desimasi Blackman-Harris berpresisi tinggi mengonversi 2.8224 MHz DSD menjadi 24-bit / 88.2 kHz PCM (+6.02 dB level SACD terkalibrasi).",
+                $"Filter desimasi Blackman-Harris berpresisi tinggi mengonversi {sourceSpec.FormattedResolution} menjadi {activeStream.WaveFormat.BitsPerSample}-bit / {AudioStreamSpec.FormatSampleRateKhz((uint)activeStream.WaveFormat.SampleRate)} PCM (+6.02 dB level SACD terkalibrasi).",
                 SignalPathQuality.Enhanced
             ));
         }
         else if (sourceSpec.Codec is AudioCodec.FLAC or AudioCodec.WAV or AudioCodec.ALAC or AudioCodec.AIFF)
         {
+            uint pcmKbps = AudioSourceFormatResolver.ComputeUncompressedPcmBitrateKbps(
+                activeStream.WaveFormat.SampleRate,
+                activeStream.WaveFormat.BitsPerSample,
+                activeStream.WaveFormat.Channels);
+            string pcmSpec = $"{activeStream.WaveFormat.BitsPerSample}-bit / {AudioStreamSpec.FormatSampleRateKhz((uint)activeStream.WaveFormat.SampleRate)}, PCM {AudioStreamSpec.FormatBitrateKbps(pcmKbps)}";
             steps.Add(new SignalStep(
                 SignalStepType.Decoder,
                 $"{sourceSpec.Codec} Bit-Exact Decompression",
-                $"Dekompresi lossless bit-exact ke PCM murni ({(int)sourceSpec.BitDepth}-bit / {sourceSpec.SampleRateHz / 1000.0:F1} kHz) tanpa perubahan bit.",
+                $"Dekompresi lossless bit-exact ke PCM murni ({pcmSpec}) tanpa perubahan bit.",
                 SignalPathQuality.BitPerfect
             ));
         }
         else // MP3 / AAC / Lossy
         {
+            uint pcmKbps = AudioSourceFormatResolver.ComputeUncompressedPcmBitrateKbps(
+                activeStream.WaveFormat.SampleRate,
+                activeStream.WaveFormat.BitsPerSample,
+                activeStream.WaveFormat.Channels);
+            string pcmSpec = $"{activeStream.WaveFormat.BitsPerSample}-bit / {AudioStreamSpec.FormatSampleRateKhz((uint)activeStream.WaveFormat.SampleRate)}, PCM {AudioStreamSpec.FormatBitrateKbps(pcmKbps)}";
             steps.Add(new SignalStep(
                 SignalStepType.Decoder,
                 $"{sourceSpec.Codec} Perceptual Decoder",
-                "Dekompresi lossy ke PCM. Keterbatasan kompresi psikoakustik melekat pada berkas sumber asal.",
+                $"Dekompresi lossy ke PCM ({pcmSpec}). Keterbatasan kompresi psikoakustik melekat pada berkas sumber asal.",
                 SignalPathQuality.Enhanced
             ));
         }
@@ -129,12 +140,17 @@ public static class SignalPathAuditor
                              hardwareFormat.SampleRate == activeStream.WaveFormat.SampleRate &&
                              hardwareFormat.BitsPerSample == activeStream.WaveFormat.BitsPerSample;
 
+        string hwRateText = hardwareFormat != null
+            ? AudioStreamSpec.FormatSampleRateKhz((uint)hardwareFormat.SampleRate)
+            : "0.0 kHz";
+        string streamRateText = AudioStreamSpec.FormatSampleRateKhz((uint)activeStream.WaveFormat.SampleRate);
+
         if (formatMatches && isExclusive)
         {
             steps.Add(new SignalStep(
                 SignalStepType.HardwareEndpoint,
                 $"{deviceName} [TERKUNCI BIT-PERFECT]",
-                $"DAC menerima sinyal bit-exact pada {hardwareFormat?.BitsPerSample}-bit / {hardwareFormat?.SampleRate / 1000.0:F1} kHz. Nol resampling hardware.",
+                $"DAC menerima sinyal bit-exact pada {hardwareFormat?.BitsPerSample}-bit / {hwRateText}. Nol resampling hardware.",
                 SignalPathQuality.BitPerfect
             ));
         }
@@ -143,7 +159,7 @@ public static class SignalPathAuditor
             steps.Add(new SignalStep(
                 SignalStepType.HardwareEndpoint,
                 $"{deviceName} [RESAMPLED]",
-                $"Perbedaan format: Aliran audio adalah {activeStream.WaveFormat.SampleRate / 1000.0:F1} kHz, namun DAC dinegosiasikan pada {hardwareFormat?.SampleRate / 1000.0:F1} kHz.",
+                $"Perbedaan format: Aliran audio adalah {streamRateText}, namun DAC dinegosiasikan pada {hwRateText}.",
                 SignalPathQuality.ResampledOrDegraded
             ));
         }
@@ -152,7 +168,7 @@ public static class SignalPathAuditor
             steps.Add(new SignalStep(
                 SignalStepType.HardwareEndpoint,
                 deviceName,
-                $"Output ke {hardwareFormat?.BitsPerSample}-bit / {hardwareFormat?.SampleRate / 1000.0:F1} kHz dalam mode shared.",
+                $"Output ke {hardwareFormat?.BitsPerSample}-bit / {hwRateText} dalam mode shared.",
                 SignalPathQuality.ResampledOrDegraded
             ));
         }

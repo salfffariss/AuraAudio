@@ -646,7 +646,7 @@
 
                 <!-- Col 6: Bitrate (Toggleable via header context menu) -->
                 <DataGridTextColumn x:Name="ColBitrate" Header="BITRATE" Width="92" Visibility="Collapsed"
-                                    Binding="{Binding StreamSpec.BitrateKbps, StringFormat={}{0} kbps}">
+                                    Binding="{Binding StreamSpec.FormattedBitrate}">
                     <DataGridTextColumn.ElementStyle>
                         <Style TargetType="TextBlock" BasedOn="{StaticResource Text.TabularMono}">
                             <Setter Property="VerticalAlignment" Value="Center" />

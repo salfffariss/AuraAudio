@@ -42,28 +42,17 @@ public sealed record TrackExtendedDetails
         double mb = track.FileSizeBytes / (1024.0 * 1024.0);
         string sizeStr = mb >= 0.01
             ? $"{mb.ToString("0.00", CultureInfo.InvariantCulture)} MB"
-            : $"{track.FileSizeBytes:N0} B";
+            : $"{track.FileSizeBytes.ToString("N0", CultureInfo.InvariantCulture)} B";
 
         uint kbps = track.StreamSpec.BitrateKbps;
-        if (kbps == 0 && track.Duration.TotalSeconds > 0.5 && track.FileSizeBytes > 0)
+        if (kbps == 0 && track.Duration.TotalSeconds > 0.05 && track.FileSizeBytes > 0)
         {
-            kbps = (uint)Math.Round((track.FileSizeBytes * 8.0) / (track.Duration.TotalSeconds * 1000.0));
+            kbps = (uint)Math.Max(1, Math.Round((track.FileSizeBytes * 8.0) / (track.Duration.TotalSeconds * 1000.0)));
         }
 
-        string bitrateStr = kbps > 0 ? $"{kbps:N0} kbps" : "Variable";
-        double khz = Math.Round(track.StreamSpec.SampleRateHz / 1000.0, 1);
-        string chText = track.StreamSpec.Channels switch
-        {
-            1 => "1 Ch (Mono)",
-            2 => "2 Ch (Stereo)",
-            6 => "5.1 Ch (Surround)",
-            8 => "7.1 Ch (Surround)",
-            _ => $"{track.StreamSpec.Channels} Ch"
-        };
-
-        string sampleSpec = track.StreamSpec.IsDsd
-            ? $"{track.StreamSpec.FormattedBadge} • {chText}"
-            : $"{(int)track.StreamSpec.BitDepth}-bit / {khz.ToString("0.#", CultureInfo.InvariantCulture)} kHz • {chText}";
+        string bitrateStr = AudioStreamSpec.FormatBitrateKbps(kbps);
+        string chText = AudioStreamSpec.FormatChannelLabel(track.StreamSpec.Channels, verbose: true);
+        string sampleSpec = $"{track.StreamSpec.FormattedResolution} • {chText}";
 
         return new TrackExtendedDetails
         {

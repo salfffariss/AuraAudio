@@ -43,6 +43,99 @@ namespace AuraAudio.Audio.Flac;
 public sealed class SafeFlacDecoder : IDisposable
 {
     public readonly record struct SeekPoint(long SampleNumber, long StreamOffset, int FrameSamples);
+    public readonly record struct FlacStreamInfo(int SampleRate, int ChannelCount, int BitsPerSample, long TotalSamples);
+
+    /// <summary>
+    /// Reads only the leading ID3v2 prefix (if any) and 34-byte FLAC STREAMINFO block
+    /// without allocating frame buffers or scanning subsequent metadata blocks.
+    /// </summary>
+    public static bool TryReadStreamInfo(string filePath, out FlacStreamInfo info)
+    {
+        info = default;
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+            using var reader = new BufferedBitReader(fs, leaveOpen: true);
+
+            // Skip optional leading ID3v2 tags + zero padding using the same bounds as ReadMetadata.
+            for (int tagCount = 0; tagCount < MaxLeadingId3Tags; tagCount++)
+            {
+                if (reader.HasReachedEnd || (reader.Peek32() >> 8) != 0x494433UL)
+                {
+                    break;
+                }
+
+                reader.Skip(24);
+                byte majorVer = (byte)reader.Read(8);
+                byte minorVer = (byte)reader.Read(8);
+                byte flags = (byte)reader.Read(8);
+                byte s0 = (byte)reader.Read(8);
+                byte s1 = (byte)reader.Read(8);
+                byte s2 = (byte)reader.Read(8);
+                byte s3 = (byte)reader.Read(8);
+
+                if (majorVer == 0xFF || minorVer == 0xFF || ((s0 | s1 | s2 | s3) & 0x80) != 0)
+                {
+                    return false;
+                }
+
+                long tagBodySize = ((long)s0 << 21) | ((long)s1 << 14) | ((long)s2 << 7) | s3;
+                if ((flags & 0x10) != 0) tagBodySize += 10;
+                if (reader.StreamLength >= 0 && reader.BytePosition + tagBodySize > reader.StreamLength)
+                {
+                    return false;
+                }
+
+                reader.SkipBytes(tagBodySize);
+
+                int zeroSkipped = 0;
+                while (!reader.HasReachedEnd && (reader.Peek32() >> 24) == 0)
+                {
+                    reader.Skip(8);
+                    if (++zeroSkipped > MaxId3PaddingBytes) return false;
+                }
+            }
+
+            if (reader.Read(32) != 0x664C6143UL) // "fLaC"
+            {
+                return false;
+            }
+
+            _ = reader.Read(1); // isLastBlock
+            int blockType = (int)reader.Read(7);
+            int blockLength = (int)reader.Read(24);
+            if (blockType != 0 || blockLength != 34)
+            {
+                return false;
+            }
+
+            reader.Skip(16); // min blocksize
+            reader.Skip(16); // max blocksize
+            reader.Skip(24); // min frame size
+            reader.Skip(24); // max frame size
+            int sampleRate = (int)reader.Read(20);
+            int channels = (int)reader.Read(3) + 1;
+            int bitsPerSample = (int)reader.Read(5) + 1;
+            long totalSamples = (long)reader.Read(36);
+
+            if (sampleRate <= 0 || channels < 1 || channels > MaxChannelsAllowed || bitsPerSample < 4 || bitsPerSample > 32)
+            {
+                return false;
+            }
+
+            info = new FlacStreamInfo(sampleRate, channels, bitsPerSample, totalSamples);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private const int MaxMetadataBlocks = 10_000;
     private const int MaxSeekPoints = 250_000;

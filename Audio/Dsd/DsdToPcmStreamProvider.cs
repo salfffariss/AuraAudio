@@ -103,8 +103,15 @@ public class DsdToPcmStreamProvider : IAudioStream
         uint outputSampleRate = _dsfReader.SampleRate / (uint)DsdFirFilter.DecimationFactor;
         _waveFormat = new WaveFormat((int)outputSampleRate, 24, 2);
 
-        // Spesifikasi audio untuk Signal Path & Authenticity Engine
-        uint bitrateKbps = (uint)(_dsfReader.SampleRate * _dsfReader.Channels / 1000);
+        // Spesifikasi audio untuk Signal Path & Authenticity Engine (file average bitrate konsisten)
+        long fileSizeBytes = System.IO.File.Exists(_dsfReader.FilePath)
+            ? new System.IO.FileInfo(_dsfReader.FilePath).Length
+            : 0;
+        int dsdStreamKbps = (int)Math.Round(_dsfReader.SampleRate * (double)_dsfReader.Channels / 1000.0);
+        uint bitrateKbps = AudioSourceFormatResolver.ComputeFileAverageBitrateKbps(
+            fileSizeBytes,
+            _dsfReader.Duration,
+            dsdStreamKbps);
         _spec = new AudioStreamSpec(
             AudioCodec.DSD_DSF,
             _dsfReader.SampleRate,

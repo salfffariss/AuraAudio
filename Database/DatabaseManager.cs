@@ -13,6 +13,12 @@ namespace AuraAudio.Database;
 /// </summary>
 public class DatabaseManager : IDisposable
 {
+    private const string HiResSqlCondition =
+        "codec IN ('FLAC', 'ALAC', 'WAV', 'AIFF', 'DSD_DSF', 'DSD_DFF') AND (sample_rate_hz > 48000 OR bit_depth > 16 OR codec LIKE 'DSD%')";
+
+    private const string HiResSqlConditionAliasedT =
+        "t.codec IN ('FLAC', 'ALAC', 'WAV', 'AIFF', 'DSD_DSF', 'DSD_DFF') AND (t.sample_rate_hz > 48000 OR t.bit_depth > 16 OR t.codec LIKE 'DSD%')";
+
     private readonly string _connectionString;
     private bool _isDisposed;
 
@@ -334,7 +340,7 @@ public class DatabaseManager : IDisposable
         using var connection = CreateConnection();
         using var command = connection.CreateCommand();
 
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT 
                 MIN(id) AS id,
                 album,
@@ -342,7 +348,7 @@ public class DatabaseManager : IDisposable
                 MAX(year) AS year,
                 COUNT(*) AS track_count,
                 SUM(duration_ms) AS total_duration_ms,
-                MAX(CASE WHEN sample_rate_hz > 44100 OR bit_depth > 16 THEN 1 ELSE 0 END) AS is_hires,
+                MAX(CASE WHEN {HiResSqlCondition} THEN 1 ELSE 0 END) AS is_hires,
                 MAX(cover_art_cache_key) AS cover_art_cache_key
             FROM tracks
             WHERE album = @album COLLATE NOCASE
@@ -376,7 +382,7 @@ public class DatabaseManager : IDisposable
         using var connection = CreateConnection();
         using var command = connection.CreateCommand();
 
-        string sql = """
+        string sql = $"""
             SELECT 
                 MIN(id) AS id,
                 album,
@@ -384,7 +390,7 @@ public class DatabaseManager : IDisposable
                 MAX(year) AS year,
                 COUNT(*) AS track_count,
                 SUM(duration_ms) AS total_duration_ms,
-                MAX(CASE WHEN sample_rate_hz > 44100 OR bit_depth > 16 THEN 1 ELSE 0 END) AS is_hires,
+                MAX(CASE WHEN {HiResSqlCondition} THEN 1 ELSE 0 END) AS is_hires,
                 MAX(cover_art_cache_key) AS cover_art_cache_key
             FROM tracks
         """;
@@ -611,7 +617,7 @@ public class DatabaseManager : IDisposable
         using var connection = CreateConnection();
         using var command = connection.CreateCommand();
 
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT 
                 MIN(t.id) AS id,
                 t.album,
@@ -619,7 +625,7 @@ public class DatabaseManager : IDisposable
                 MAX(t.year) AS year,
                 COUNT(DISTINCT t.id) AS track_count,
                 SUM(t.duration_ms) AS total_duration_ms,
-                MAX(CASE WHEN t.sample_rate_hz > 44100 OR t.bit_depth > 16 THEN 1 ELSE 0 END) AS is_hires,
+                MAX(CASE WHEN {HiResSqlConditionAliasedT} THEN 1 ELSE 0 END) AS is_hires,
                 MAX(t.cover_art_cache_key) AS cover_art_cache_key
             FROM tracks t
             JOIN track_artists ta ON t.id = ta.track_id
@@ -1410,7 +1416,7 @@ public class DatabaseManager : IDisposable
         var results = new List<Album>();
         using var connection = CreateConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT
                 MIN(id) AS id,
                 album,
@@ -1418,7 +1424,7 @@ public class DatabaseManager : IDisposable
                 MAX(year) AS year,
                 COUNT(*) AS track_count,
                 SUM(duration_ms) AS total_duration_ms,
-                MAX(CASE WHEN sample_rate_hz > 48000 OR bit_depth >= 24 OR codec LIKE 'DSD%' THEN 1 ELSE 0 END) AS is_hi_res,
+                MAX(CASE WHEN {HiResSqlCondition} THEN 1 ELSE 0 END) AS is_hi_res,
                 MAX(cover_art_cache_key) AS cover_key
             FROM tracks
             GROUP BY album COLLATE NOCASE, album_artist COLLATE NOCASE
@@ -1452,7 +1458,7 @@ public class DatabaseManager : IDisposable
         var results = new List<Album>();
         using var connection = CreateConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT
                 MIN(id) AS id,
                 album,
@@ -1464,7 +1470,7 @@ public class DatabaseManager : IDisposable
                 MAX(cover_art_cache_key) AS cover_key
             FROM tracks
             GROUP BY album COLLATE NOCASE, album_artist COLLATE NOCASE
-            HAVING MAX(CASE WHEN sample_rate_hz > 48000 OR bit_depth >= 24 OR codec LIKE 'DSD%' THEN 1 ELSE 0 END) = 1
+            HAVING MAX(CASE WHEN {HiResSqlCondition} THEN 1 ELSE 0 END) = 1
             ORDER BY MAX(sample_rate_hz) DESC, MAX(bit_depth) DESC, album COLLATE NOCASE ASC
             LIMIT @limit;
         """;
@@ -1485,6 +1491,34 @@ public class DatabaseManager : IDisposable
             ));
         }
         return results;
+    }
+
+    /// <summary>
+    /// Updates stored technical audio format columns for an existing track row in place
+    /// when authoritative format resolution corrects a previously scanned spec (e.g. 24-bit ALAC).
+    /// </summary>
+    public void UpdateTrackStreamSpec(long trackId, AudioStreamSpec spec)
+    {
+        if (trackId <= 0 || spec == null) return;
+
+        using var connection = CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE tracks
+            SET codec = @codec,
+                sample_rate_hz = @sample_rate_hz,
+                bit_depth = @bit_depth,
+                channels = @channels,
+                bitrate_kbps = @bitrate_kbps
+            WHERE id = @id;
+        """;
+        command.Parameters.AddWithValue("@id", trackId);
+        command.Parameters.AddWithValue("@codec", spec.Codec.ToString());
+        command.Parameters.AddWithValue("@sample_rate_hz", (long)spec.SampleRateHz);
+        command.Parameters.AddWithValue("@bit_depth", (int)spec.BitDepth);
+        command.Parameters.AddWithValue("@channels", (int)spec.Channels);
+        command.Parameters.AddWithValue("@bitrate_kbps", (long)spec.BitrateKbps);
+        command.ExecuteNonQuery();
     }
 
     /// <summary>

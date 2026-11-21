@@ -2172,6 +2172,23 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         var target = track ?? CurrentTrack;
         var previousInspectedPath = _inspectedTrack?.FilePath;
+
+        if (target != null && System.IO.File.Exists(target.FilePath))
+        {
+            var resolved = AuraAudio.Audio.AudioSourceFormatResolver.ResolveFromFile(
+                target.FilePath,
+                decoderDuration: target.Duration > TimeSpan.Zero ? target.Duration : null);
+            if (resolved.Spec != target.StreamSpec)
+            {
+                target = target with { StreamSpec = resolved.Spec };
+                AudioMetadataReader.InvalidateExtendedDetailsCache(target.FilePath);
+                if (target.Id > 0)
+                {
+                    try { _db.UpdateTrackStreamSpec(target.Id, resolved.Spec); } catch { }
+                }
+            }
+        }
+
         InfoTargetTrack = target;
         OnPropertyChanged(nameof(IsInfoTargetCurrentTrack));
         InfoTargetDetails = target != null ? AudioMetadataReader.ReadExtendedDetails(target) : TrackExtendedDetails.Empty;
@@ -3054,6 +3071,16 @@ public class MainViewModel : ViewModelBase, IDisposable
                 cancellationToken: ct);
             if (!ct.IsCancellationRequested)
             {
+                if (report.SourceSpec != target.StreamSpec)
+                {
+                    var updated = target with { StreamSpec = report.SourceSpec };
+                    InspectedTrack = updated;
+                    AudioMetadataReader.InvalidateExtendedDetailsCache(updated.FilePath);
+                    if (updated.Id > 0)
+                    {
+                        try { _db.UpdateTrackStreamSpec(updated.Id, report.SourceSpec); } catch { }
+                    }
+                }
                 CurrentIntegrityReport = report;
             }
         }

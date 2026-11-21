@@ -129,8 +129,15 @@ public class DopStreamProvider : IAudioStream
         uint pcmSampleRate = _dsfReader.SampleRate / 16;
         _waveFormat = new WaveFormat((int)pcmSampleRate, 24, 2);
 
-        // Spesifikasi fisik asli DSD untuk Authenticity Signal Path UI
-        uint bitrateKbps = (uint)(_dsfReader.SampleRate * _dsfReader.Channels / 1000);
+        // Spesifikasi fisik asli DSD untuk Authenticity Signal Path UI (file average bitrate konsisten)
+        long fileSizeBytes = System.IO.File.Exists(_dsfReader.FilePath)
+            ? new System.IO.FileInfo(_dsfReader.FilePath).Length
+            : 0;
+        int dsdStreamKbps = (int)Math.Round(_dsfReader.SampleRate * (double)_dsfReader.Channels / 1000.0);
+        uint bitrateKbps = AudioSourceFormatResolver.ComputeFileAverageBitrateKbps(
+            fileSizeBytes,
+            _dsfReader.Duration,
+            dsdStreamKbps);
         _spec = new AudioStreamSpec(
             AudioCodec.DSD_DSF,
             _dsfReader.SampleRate,

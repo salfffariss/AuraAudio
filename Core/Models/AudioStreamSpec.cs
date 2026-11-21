@@ -1,3 +1,6 @@
+using System;
+using System.Globalization;
+
 namespace AuraAudio.Core.Models;
 
 /// <summary>
@@ -14,10 +17,20 @@ public record AudioStreamSpec
     public uint BitrateKbps { get; init; }
 
     /// <summary>
-    /// Menentukan apakah format ini tergolong ke dalam kategori High-Resolution Audio
-    /// (Sample rate > 44.1/48 kHz atau Bit depth > 16-bit, atau format DSD).
+    /// Menentukan apakah codec ini merupakan format lossless PCM atau DSD murni.
     /// </summary>
-    public bool IsHiRes => SampleRateHz > 48_000 || BitDepth > BitDepth.Bit16 || IsDsd;
+    public bool IsLossless => Codec is AudioCodec.FLAC
+        or AudioCodec.ALAC
+        or AudioCodec.WAV
+        or AudioCodec.AIFF
+        or AudioCodec.DSD_DSF
+        or AudioCodec.DSD_DFF;
+
+    /// <summary>
+    /// Menentukan apakah format ini tergolong ke dalam kategori High-Resolution Lossless Audio
+    /// (Lossless dengan Sample rate > 48 kHz atau Bit depth > 16-bit, atau format DSD).
+    /// </summary>
+    public bool IsHiRes => IsLossless && (SampleRateHz > 48_000 || BitDepth > BitDepth.Bit16 || IsDsd);
 
     /// <summary>
     /// Menentukan apakah audio berformat 1-bit Direct Stream Digital.
@@ -25,30 +38,66 @@ public record AudioStreamSpec
     public bool IsDsd => Codec is AudioCodec.DSD_DSF or AudioCodec.DSD_DFF;
 
     /// <summary>
-    /// Menghasilkan badge teks keterbacaan tinggi yang mirip dengan Apple Music & Spotify.
-    /// Contoh: "24-bit / 96.0 kHz FLAC" atau "DSD64 2.82 MHz 1-bit"
+    /// Formats a PCM sample rate consistently across all UI surfaces using invariant audio notation
+    /// (e.g., "44.1 kHz", "48.0 kHz", "96.0 kHz").
     /// </summary>
-    public string FormattedBadge
+    public static string FormatSampleRateKhz(uint sampleRateHz) =>
+        $"{(sampleRateHz / 1000.0).ToString("0.0", CultureInfo.InvariantCulture)} kHz";
+
+    /// <summary>
+    /// Formats a bitrate consistently across all UI surfaces with invariant thousands separators
+    /// (e.g., "2,004 kbps", "320 kbps", or "Variable").
+    /// </summary>
+    public static string FormatBitrateKbps(uint bitrateKbps) =>
+        bitrateKbps > 0
+            ? $"{bitrateKbps.ToString("N0", CultureInfo.InvariantCulture)} kbps"
+            : "Variable";
+
+    /// <summary>
+    /// Formats a channel count label consistently across Info Sheet, Signal Chain, and Inspector.
+    /// </summary>
+    public static string FormatChannelLabel(ushort channels, bool verbose = false) => channels switch
+    {
+        1 => verbose ? "1 Ch (Mono)" : "Mono",
+        2 => verbose ? "2 Ch (Stereo)" : "Stereo",
+        6 => verbose ? "5.1 Ch (Surround)" : "5.1 Surround",
+        8 => verbose ? "7.1 Ch (Surround)" : "7.1 Surround",
+        _ => $"{channels} Ch"
+    };
+
+    /// <summary>
+    /// Canonical bit-depth and sample-rate text (e.g., "24-bit / 48.0 kHz" or "DSD64 2.82 MHz 1-bit").
+    /// </summary>
+    public string FormattedResolution
     {
         get
         {
             if (IsDsd)
             {
-                double mhz = Math.Round(SampleRateHz / 1_000_000.0, 2);
+                string mhz = (SampleRateHz / 1_000_000.0).ToString("0.00", CultureInfo.InvariantCulture);
                 string dsdName = SampleRateHz switch
                 {
                     >= 11_289_600 => "DSD256",
                     >= 5_644_800  => "DSD128",
                     _             => "DSD64"
                 };
-                return $"{dsdName} {mhz:F2} MHz 1-bit";
+                return $"{dsdName} {mhz} MHz 1-bit";
             }
 
-            double khz = Math.Round(SampleRateHz / 1000.0, 1);
-            int bits = (int)BitDepth;
-            return $"{bits}-bit / {khz:F1} kHz {Codec}";
+            return $"{(int)BitDepth}-bit / {FormatSampleRateKhz(SampleRateHz)}";
         }
     }
+
+    /// <summary>
+    /// Menghasilkan badge teks keterbacaan tinggi yang konsisten di seluruh UI.
+    /// Contoh: "24-bit / 96.0 kHz FLAC" atau "DSD64 2.82 MHz 1-bit"
+    /// </summary>
+    public string FormattedBadge => IsDsd ? FormattedResolution : $"{FormattedResolution} {Codec}";
+
+    /// <summary>
+    /// Formatted actual average bitrate of the file (e.g., "2,004 kbps").
+    /// </summary>
+    public string FormattedBitrate => FormatBitrateKbps(BitrateKbps);
 
     /// <summary>
     /// Konstruktor standar untuk membuat spesifikasi audio lengkap.
