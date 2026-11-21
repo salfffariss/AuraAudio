@@ -6,11 +6,16 @@ AuraAudio includes or links against the following third-party open-source compon
 
 | Component | Version | License | Authors / Copyright | Project URL |
 | :--- | :---: | :--- | :--- | :--- |
-| **BunLabs.NAudio.Flac** | `2.0.1` | `MS-PL` (Microsoft Public License) | Vivelin | https://github.com/BunLabs/NAudio.Flac |
 | **Microsoft.Data.Sqlite** | `10.0.13` | `MIT` | Microsoft | https://docs.microsoft.com/dotnet/standard/data/sqlite/ |
 | **NAudio.Wasapi** | `3.1.0` | `MIT` | Mark Heath | https://naudio.github.io/NAudio/ |
 | **System.Drawing.Common** | `10.0.13` | `MIT` | Microsoft | https://github.com/dotnet/winforms |
 | **TagLibSharp** | `2.3.0` | `LGPL-2.1-only` | Brian Nickel, Gabriel Burt, Stephen Shaw, et al. | https://github.com/mono/taglib-sharp |
+
+## Derived In-Tree Source Components
+
+| Component | License | Authors / Copyright | Project URL |
+| :--- | :--- | :--- | :--- |
+| **SimpleFlac** *(basis for `Audio/Flac/SafeFlacDecoder.cs`)* | `MIT` | J.D. Purcell; Project Nayuki | https://github.com/jdpurcell/SimpleFlac · https://www.nayuki.io/page/simple-flac-implementation |
 
 ## Transitive Runtime Dependencies
 
@@ -43,4 +48,4 @@ Not included in published standalone release binaries:
 ## Licensing Notes
 
 - **LGPL-2.1-only (`TagLibSharp`):** `TagLibSharp` is licensed under the GNU Lesser General Public License v2.1 only. Complete buildable source code and build instructions for AuraAudio are provided in this repository so recipients can rebuild and relink AuraAudio against a modified or updated version of `TagLibSharp`.
-- **MS-PL (`BunLabs.NAudio.Flac`):** Distributed portions of `BunLabs.NAudio.Flac` remain subject to the Microsoft Public License (MS-PL), including preservation of all copyright and license notices.
+- **MIT (`SimpleFlac`):** `Audio/Flac/SafeFlacDecoder.cs` is derived from `SimpleFlac` (J.D. Purcell / Project Nayuki) under the MIT License; full copyright and permission notices are preserved in the source header.

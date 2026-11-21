@@ -13,6 +13,19 @@ using NAudio.Wave;
 
 namespace AuraAudio.Audio.Controller;
 
+public sealed class PlaybackErrorEventArgs : EventArgs
+{
+    public Track Track { get; }
+    public Exception Exception { get; }
+    public string Message => Exception.Message;
+
+    public PlaybackErrorEventArgs(Track track, Exception exception)
+    {
+        Track = track;
+        Exception = exception;
+    }
+}
+
 /// <summary>
 /// Kontroler Pemutaran Audio Kelas Audiophile (Audiophile Playback Controller & Thread-Safe State Store).
 /// Mengorkestrasi seluruh subsistem audio AuraAudio:
@@ -127,6 +140,7 @@ public class AudiophilePlaybackController : IDisposable
     public event EventHandler<Track>? TrackChanged;
     public event EventHandler<AudioIntegrityReport>? IntegrityReportUpdated;
     public event EventHandler<SignalPathSummary>? SignalPathUpdated;
+    public event EventHandler<PlaybackErrorEventArgs>? PlaybackFailed;
 
     public AudiophilePlaybackController(IAudioOutputEngine? outputEngine = null)
     {
@@ -555,8 +569,9 @@ public class AudiophilePlaybackController : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[AudioController Error] Gagal memutar berkas '{track.FilePath}': {ex.Message}");
+            System.Diagnostics.Trace.TraceWarning($"[AudioController] Failed to play '{track.FilePath}': {ex.GetType().Name}: {ex.Message}");
             Stop();
+            PlaybackFailed?.Invoke(this, new PlaybackErrorEventArgs(track, ex));
         }
         finally
         {

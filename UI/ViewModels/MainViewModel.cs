@@ -84,6 +84,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private int _currentQueueIndex = -1;
     private bool _isQueueDrawerOpen = false;
     private string _analysisErrorMessage = string.Empty;
+    private string _playbackErrorMessage = string.Empty;
     private CancellationTokenSource? _searchDebounceCts;
 
     // Child ViewModels (v2.0.0 architecture, 03_design_spec.md Part D.6)
@@ -842,6 +843,12 @@ public class MainViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(IsInspectorEmpty));
             }
         }
+    }
+
+    public string PlaybackErrorMessage
+    {
+        get => _playbackErrorMessage;
+        private set => SetProperty(ref _playbackErrorMessage, value);
     }
 
     public bool HasAnalysisError => !IsAnalyzing && !string.IsNullOrEmpty(_analysisErrorMessage);
@@ -2143,6 +2150,7 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         OutputDeviceName = _controller.CurrentDevice?.Name ?? "WASAPI Exclusive DAC";
         RefreshSidebarDriverStatus();
+        _controller.PlaybackFailed += OnControllerPlaybackFailed;
 
         // Mulai consumer loop Channel State Snapshot (120 FPS tanpa alokasi berat)
         Task.Run(ConsumeStateChannelAsync);
@@ -2311,6 +2319,10 @@ public class MainViewModel : ViewModelBase, IDisposable
         bool trackChanged = _currentTrack?.FilePath != s.CurrentTrack?.FilePath;
         CurrentTrack = s.CurrentTrack;
         IsPlaying = s.Status == PlaybackStatus.Playing;
+        if (IsPlaying && !string.IsNullOrEmpty(_playbackErrorMessage))
+        {
+            PlaybackErrorMessage = string.Empty;
+        }
         CurrentTime = s.CurrentTime;
         TotalTime = s.TotalTime;
         ActivePlayingTrackId = s.CurrentTrack?.Id;
@@ -3289,6 +3301,48 @@ public class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private void OnControllerPlaybackFailed(object? sender, PlaybackErrorEventArgs e)
+    {
+        bool isEn = AuraAudio.UI.Helpers.LocalizationManager.CurrentLanguage == "en";
+        string trackName = string.IsNullOrWhiteSpace(e.Track.Title)
+            ? Path.GetFileName(e.Track.FilePath)
+            : e.Track.Title;
+        string message = isEn
+            ? $"Unable to play \"{trackName}\": {e.Message}"
+            : $"Tidak dapat memutar \"{trackName}\": {e.Message}";
+
+        void ApplyOnUi()
+        {
+            PlaybackErrorMessage = message;
+            if (CurrentView == "Inspector" &&
+                (InspectedTrack == null || string.Equals(InspectedTrack.FilePath, e.Track.FilePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                CurrentIntegrityReport = null;
+                AnalysisErrorMessage = message;
+            }
+
+            if (Application.Current?.MainWindow is { IsVisible: true } owner &&
+                !string.Equals(Environment.GetEnvironmentVariable("AURA_SMOKE_MODE"), "1", StringComparison.Ordinal))
+            {
+                MessageBox.Show(
+                    owner,
+                    message,
+                    isEn ? "Playback Error" : "Kesalahan Pemutaran",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+
+        if (Application.Current?.Dispatcher != null)
+        {
+            Application.Current.Dispatcher.BeginInvoke(ApplyOnUi);
+        }
+        else
+        {
+            PlaybackErrorMessage = message;
+        }
+    }
+
     private bool _isDisposed;
 
     public void Dispose()
@@ -3296,6 +3350,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         if (_isDisposed) return;
         _isDisposed = true;
 
+        _controller.PlaybackFailed -= OnControllerPlaybackFailed;
         SaveSession();
         Settings.HardwareConfig.Cleanup();
         _searchDebounceCts?.Cancel();
