@@ -12,8 +12,10 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using AuraAudio.Audio;
 using AuraAudio.Audio.Authenticity;
 using AuraAudio.Core.Models;
+using AuraAudio.Metadata;
 using AuraAudio.UI.Helpers;
 using AuraAudio.UI.ViewModels;
 using AuraAudio.UI.Windows;
@@ -360,6 +362,115 @@ public class RuntimePixelPurityTests
         finally
         {
             try { if (File.Exists(tempWav)) File.Delete(tempWav); } catch { }
+        }
+    }
+
+    [SkippableFact]
+    public void InfoSheet_Alac16BitAnd24Bit_RenderConsistentSpecsAndMonochrome()
+    {
+        Skip.IfNot(SourceFormatConsistencyTests.CheckFfmpegAvailable(), "ffmpeg is not installed on PATH; skipping ALAC Info Sheet UI screenshot test.");
+
+        string outDir = Environment.GetEnvironmentVariable("AURA_PIXEL_AUDIT_DIR")
+            ?? Path.Combine(Path.GetTempPath(), "AuraAudio_PixelAudit_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(outDir);
+
+        string tempDir = Path.Combine(Path.GetTempPath(), "AuraAudio_AlacUiAudit_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            string alac16Path = Path.Combine(tempDir, "test_alac_16bit_44k.m4a");
+            string alac24Path = Path.Combine(tempDir, "test_alac_24bit_48k.m4a");
+
+            SourceFormatConsistencyTests.RunFfmpeg(
+                $"-y -hide_banner -loglevel error -f lavfi -i \"anoisesrc=d=2:c=pink:r=44100:a=0.25\" -ac 2 -c:a alac -sample_fmt s16p -metadata title=\"ALAC 16-bit Test\" -metadata artist=\"AuraAudio Verification\" -metadata album=\"16-bit / 44.1 kHz Audit\" \"{alac16Path}\"");
+            SourceFormatConsistencyTests.RunFfmpeg(
+                $"-y -hide_banner -loglevel error -f lavfi -i \"anoisesrc=d=2:c=pink:r=48000:a=0.25\" -ac 2 -c:a alac -sample_fmt s32p -metadata title=\"ALAC 24-bit Test\" -metadata artist=\"AuraAudio Verification\" -metadata album=\"24-bit / 48.0 kHz Audit\" \"{alac24Path}\"");
+
+            // Force ISO 14496-12 AudioSampleEntry.samplesize = 16 while ALACSpecificConfig.bitDepth = 24
+            SourceFormatConsistencyTests.OverwriteMp4AudioSampleEntrySampleSize(alac24Path, 16);
+
+            var reader = new AudioMetadataReader();
+            var meta16 = reader.ReadFile(alac16Path);
+            var meta24 = reader.ReadFile(alac24Path);
+
+            using var stream16 = AudioDecoderFactory.OpenStream(alac16Path);
+            using var stream24 = AudioDecoderFactory.OpenStream(alac24Path);
+            using var eng16 = new SourceFormatConsistencyTests.StubBitPerfectOutputEngine(stream16.WaveFormat);
+            using var eng24 = new SourceFormatConsistencyTests.StubBitPerfectOutputEngine(stream24.WaveFormat);
+            var sig16 = SignalPathAuditor.Audit(stream16, eng16, AudioDriverType.WASAPI_Exclusive);
+            var sig24 = SignalPathAuditor.Audit(stream24, eng24, AudioDriverType.WASAPI_Exclusive);
+
+            var reports = new List<PixelReport>();
+
+            WpfStaTestRunner.Run(() =>
+            {
+                bool? prevReduced = SpringAnimator.ForceReducedMotionOverride;
+                string prevLang = LocalizationManager.CurrentLanguage;
+                SpringAnimator.ForceReducedMotionOverride = true;
+
+                MainWindow? win = null;
+                try
+                {
+                    win = new MainWindow
+                    {
+                        Width = 1440,
+                        Height = 900,
+                        ShowInTaskbar = false,
+                        Left = -20000,
+                        Top = -20000
+                    };
+                    win.Show();
+                    Pump(180);
+
+                    var vm = Assert.IsType<MainViewModel>(win.DataContext);
+                    vm.QueueTracks.Clear();
+                    vm.CurrentView = "Inspector";
+                    SetStaLanguage("en");
+
+                    foreach (var (track, sig, expectedResPrefix, expectedPcmLabel, shotName) in new[]
+                    {
+                        (meta16.Track, sig16, "16-bit / 44.1 kHz", "PCM 1,411 kbps", "15_infosheet_alac_16bit_44k.png"),
+                        (meta24.Track, sig24, "24-bit / 48.0 kHz", "PCM 2,304 kbps", "16_infosheet_alac_24bit_48k.png")
+                    })
+                    {
+                        vm.CurrentTrack = track;
+                        vm.CurrentSignalPath = sig;
+                        vm.SignalPathBadge = sig.BadgeText;
+                        vm.PrepareInfoSheetForTrack(track);
+                        vm.Presentation.ActiveInfoTab = "Audio";
+                        vm.Presentation.IsInfoSheetOpen = true;
+                        Pump(220);
+
+                        Assert.StartsWith(expectedResPrefix, vm.InfoTargetDetails.SampleRateAndBitDepth);
+                        Assert.Contains(expectedResPrefix, sig.Steps[0].Description);
+                        Assert.Contains(vm.InfoTargetDetails.BitrateText, sig.Steps[0].Description);
+                        Assert.Contains(expectedPcmLabel, sig.Steps[1].Description);
+
+                        reports.Add(CaptureAndAudit(win, Path.Combine(outDir, shotName), shotName));
+
+                        vm.Presentation.CloseInfoSheetCommand.Execute(null);
+                        Pump(100);
+                    }
+                }
+                finally
+                {
+                    SpringAnimator.ForceReducedMotionOverride = prevReduced;
+                    try { SetStaLanguage(prevLang); } catch { }
+                    try { win?.Close(); } catch { }
+                }
+            });
+
+            foreach (var r in reports)
+            {
+                _output.WriteLine($"[{(r.MaxDelta <= 2 ? "PASS" : "FAIL")}] {r.Name,-36} | {r.Width,4}x{r.Height,-4} | grays={r.DistinctGrays,3} | maxDelta={r.MaxDelta,3} | px>2={r.PixelsOver2,6}");
+                Assert.True(r.DistinctGrays >= 3, $"{r.Name} rendered flat.");
+                Assert.True(r.MaxDelta <= 2, $"{r.Name} failed monochrome purity: maxDelta={r.MaxDelta} at ({r.WorstX},{r.WorstY})=RGB({r.WorstR},{r.WorstG},{r.WorstB})");
+            }
+        }
+        finally
+        {
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
         }
     }
 

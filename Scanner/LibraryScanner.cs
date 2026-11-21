@@ -40,10 +40,17 @@ public class LibraryScanner
     /// Memindai satu folder direktori secara rekursif dan asinkron.
     /// Menggunakan alur kerja paralel untuk ekstraksi tag dan penyimpanan batch ke SQLite.
     /// </summary>
-    public async Task<ScanProgress> ScanDirectoryAsync(
+    public Task<ScanProgress> ScanDirectoryAsync(
         string directoryPath,
         IProgress<ScanProgress>? progress = null,
         CancellationToken cancellationToken = default)
+        => ScanDirectoryInternalAsync(directoryPath, progress, cancellationToken, persistSpecVersion: true);
+
+    private async Task<ScanProgress> ScanDirectoryInternalAsync(
+        string directoryPath,
+        IProgress<ScanProgress>? progress,
+        CancellationToken cancellationToken,
+        bool persistSpecVersion)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
         if (!Directory.Exists(directoryPath))
@@ -56,6 +63,11 @@ public class LibraryScanner
         // 1. Dapatkan daftar tanda tangan file yang sudah ada di database untuk Fast Re-scan
         var existingSignatures = _databaseManager.GetExistingFileSignatures();
         var excludedFolders = _databaseManager.GetExcludedFolders();
+        const string currentSpecVersion = "2";
+        bool needsOneTimeSpecRefresh = !string.Equals(
+            _databaseManager.GetSetting("metadata_spec_version"),
+            currentSpecVersion,
+            StringComparison.Ordinal);
 
         // 2. Temukan seluruh file audio yang didukung di dalam folder (Rekursif, melompati folder yang dikecualikan)
         var allAudioFiles = EnumerateAudioFiles(directoryPath, excludedFolders).ToList();
@@ -75,7 +87,7 @@ public class LibraryScanner
             try
             {
                 var fi = new FileInfo(file);
-                if (existingSignatures.TryGetValue(file, out long existingSize) && existingSize == fi.Length)
+                if (!needsOneTimeSpecRefresh && existingSignatures.TryGetValue(file, out long existingSize) && existingSize == fi.Length)
                 {
                     // File sudah ada dan ukurannya sama persis: Lewati pembacaan tag!
                     skippedCount++;
@@ -162,6 +174,11 @@ public class LibraryScanner
 
             // Simpan sisa track yang belum ter-flush
             FlushBatch(trackBatch);
+        }
+
+        if (needsOneTimeSpecRefresh && !cancellationToken.IsCancellationRequested && persistSpecVersion)
+        {
+            try { _databaseManager.SetSetting("metadata_spec_version", currentSpecVersion); } catch { }
         }
 
         stopwatch.Stop();
@@ -274,8 +291,13 @@ public class LibraryScanner
             if (cancellationToken.IsCancellationRequested) break;
             if (Directory.Exists(dir))
             {
-                lastProgress = await ScanDirectoryAsync(dir, progress, cancellationToken);
+                lastProgress = await ScanDirectoryInternalAsync(dir, progress, cancellationToken, persistSpecVersion: false);
             }
+        }
+
+        if (!cancellationToken.IsCancellationRequested)
+        {
+            try { _databaseManager.SetSetting("metadata_spec_version", "2"); } catch { }
         }
 
         return lastProgress;

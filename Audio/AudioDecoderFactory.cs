@@ -108,14 +108,6 @@ public static class AudioDecoderFactory
 
     private static AudioCodec ProbeCodecWithTagLib(string extension, string filePath)
     {
-        try
-        {
-            using var tagFile = TagLib.File.Create(filePath);
-            return AudioMetadataReader.DetectCodec(extension, tagFile.Properties);
-        }
-        catch
-        {
-            return AudioMetadataReader.DetectCodec(extension, null);
-        }
+        return AudioSourceFormatResolver.DetectCodecFromFile(extension, filePath);
     }
 }

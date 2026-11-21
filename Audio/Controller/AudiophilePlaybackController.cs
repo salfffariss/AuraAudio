@@ -532,6 +532,10 @@ public class AudiophilePlaybackController : IDisposable
 
                 // 1. Buat stream audio melalui AudioDecoderFactory
                 var rawStream = AudioDecoderFactory.OpenStream(track.FilePath, _dsdMode);
+                if (rawStream.Spec != track.StreamSpec)
+                {
+                    track = track with { StreamSpec = rawStream.Spec };
+                }
 
                 // 2. Bungkus ke dalam antrean Gapless dengan proteksi Anti-Pop
                 _activeQueue = new GaplessStreamQueue(rawStream);

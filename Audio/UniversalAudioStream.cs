@@ -1,4 +1,5 @@
 using System;
+using AuraAudio.Audio.Flac;
 using AuraAudio.Core.Models;
 using NAudio.Wave;
 
@@ -39,20 +40,29 @@ public class UniversalAudioStream : IAudioStream
         _filePath = filePath ?? throw new ArgumentNullException(nameof(filePath));
         _underlyingStream = underlyingStream ?? throw new ArgumentNullException(nameof(underlyingStream));
 
-        // Ekstraksi spesifikasi bit-exact dari WaveFormat decoder
-        var wf = underlyingStream.WaveFormat;
-        uint sampleRate = (uint)wf.SampleRate;
-        ushort channels = (ushort)wf.Channels;
-        uint bitrate = (uint)(wf.AverageBytesPerSecond * 8 / 1000);
+        int? flacSourceBits = underlyingStream is SafeFlacWaveStream flacStream
+            ? flacStream.SourceBitsPerSample
+            : null;
 
-        BitDepth bitDepth = wf.BitsPerSample switch
+        TimeSpan? streamDuration = null;
+        try
         {
-            >= 32 => BitDepth.Bit32Float,
-            >= 24 => BitDepth.Bit24,
-            _     => BitDepth.Bit16
-        };
+            if (underlyingStream.TotalTime > TimeSpan.Zero)
+            {
+                streamDuration = underlyingStream.TotalTime;
+            }
+        }
+        catch
+        {
+            streamDuration = null;
+        }
 
-        _spec = new AudioStreamSpec(codec, sampleRate, bitDepth, channels, bitrate);
+        _spec = AudioSourceFormatResolver.ResolveFromFile(
+            filePath,
+            decoderWaveFormat: underlyingStream.WaveFormat,
+            decoderDuration: streamDuration,
+            knownCodec: codec,
+            decoderSourceBitsPerSample: flacSourceBits).Spec;
     }
 
     public int Read(byte[] buffer, int offset, int count)

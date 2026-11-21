@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using AuraAudio.Audio;
 using AuraAudio.Core.Models;
 using TagLib;
 
@@ -40,6 +41,18 @@ public class AudioMetadataReader
 
     private static readonly ConcurrentDictionary<string, TrackExtendedDetails> ExtendedDetailsCache = new(StringComparer.OrdinalIgnoreCase);
 
+    public static void InvalidateExtendedDetailsCache(string? filePath = null)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            ExtendedDetailsCache.Clear();
+        }
+        else
+        {
+            ExtendedDetailsCache.TryRemove(filePath, out _);
+        }
+    }
+
     /// <summary>
     /// Mengekstrak metadata mendalam (Composer, Conductor, Genre, Copyright, Bitrate, Lyrics)
     /// secara on-demand untuk halaman Now Playing Music Detail Stage dengan L1 RAM Cache.
@@ -65,13 +78,26 @@ public class AudioMetadataReader
             var tag = tagFile.Tag;
             var props = tagFile.Properties;
 
+            // Resolve authoritative source format from the file so pre-existing DB rows
+            // (e.g. 24-bit ALAC previously scanned as 16-bit) always display accurate specs.
+            var resolved = AudioSourceFormatResolver.ResolveFromFile(
+                track.FilePath,
+                tagProperties: props,
+                decoderDuration: track.Duration > TimeSpan.Zero ? track.Duration : null);
+            var authoritativeTrack = track with
+            {
+                StreamSpec = resolved.Spec,
+                Duration = resolved.Duration
+            };
+            var authoritativeFallback = TrackExtendedDetails.FromTrackFallback(authoritativeTrack);
+
             string performers = !string.IsNullOrWhiteSpace(tag.JoinedPerformers)
                 ? tag.JoinedPerformers.Trim()
-                : fallback.Performers;
+                : authoritativeFallback.Performers;
 
             string albumArtist = !string.IsNullOrWhiteSpace(tag.JoinedAlbumArtists)
                 ? tag.JoinedAlbumArtists.Trim()
-                : fallback.AlbumArtist;
+                : authoritativeFallback.AlbumArtist;
 
             string composer = !string.IsNullOrWhiteSpace(tag.JoinedComposers)
                 ? tag.JoinedComposers.Trim()
@@ -100,20 +126,9 @@ public class AudioMetadataReader
                 ? $"Track {trackNo:D2}/{tag.TrackCount:D2} • Disc {discNo}"
                 : $"Track {trackNo:D2} • Disc {discNo}";
 
-            uint kbps = track.StreamSpec.BitrateKbps;
-            if (kbps == 0 && props != null && props.AudioBitrate > 0)
-            {
-                kbps = (uint)props.AudioBitrate;
-            }
-            if (kbps == 0 && track.Duration.TotalSeconds > 0.5 && track.FileSizeBytes > 0)
-            {
-                kbps = (uint)Math.Round((track.FileSizeBytes * 8.0) / (track.Duration.TotalSeconds * 1000.0));
-            }
-            string bitrateText = kbps > 0 ? $"{kbps:N0} kbps" : fallback.BitrateText;
-
             string? lyrics = !string.IsNullOrWhiteSpace(tag.Lyrics) ? tag.Lyrics.Trim() : null;
 
-            var details = fallback with
+            var details = authoritativeFallback with
             {
                 Performers = performers,
                 AlbumArtist = albumArtist,
@@ -123,7 +138,6 @@ public class AudioMetadataReader
                 YearText = yearText,
                 TrackDiscText = trackDiscText,
                 Copyright = copyright,
-                BitrateText = bitrateText,
                 Lyrics = lyrics
             };
 
@@ -156,23 +170,15 @@ public class AudioMetadataReader
         long fileSizeBytes = fileInfo.Length;
         DateTime dateAdded = DateTime.UtcNow;
 
-        string extension = fileInfo.Extension.ToLowerInvariant();
-
-        // Buka file menggunakan TagLib# terlebih dahulu agar codec sebenarnya (misal AAC vs ALAC dalam .m4a) terbaca akurat
+        // Buka file menggunakan TagLib# terlebih dahulu agar tag teks dan durasi terbaca,
+        // lalu selesaikan spesifikasi fisik audio lewat AudioSourceFormatResolver (single source of truth).
         using var tagFile = TagLib.File.Create(filePath);
         var properties = tagFile.Properties;
         var tag = tagFile.Tag;
 
-        AudioCodec codec = DetectCodec(extension, properties);
-
-        // 1. Ekstraksi Spesifikasi Fisik Audio
-        uint sampleRateHz = (uint)Math.Max(properties.AudioSampleRate, 44_100);
-        ushort channels = (ushort)Math.Max(properties.AudioChannels, 2);
-        uint bitrateKbps = (uint)Math.Max(properties.AudioBitrate, 0);
-        BitDepth bitDepth = DetectBitDepth(properties, codec);
-        TimeSpan duration = properties.Duration > TimeSpan.Zero ? properties.Duration : TimeSpan.FromSeconds(1);
-
-        var streamSpec = new AudioStreamSpec(codec, sampleRateHz, bitDepth, channels, bitrateKbps);
+        var resolved = AudioSourceFormatResolver.ResolveFromFile(filePath, tagProperties: properties);
+        var streamSpec = resolved.Spec;
+        TimeSpan duration = resolved.Duration;
 
         // 2. Ekstraksi Tag Teks & Fallback Cerdas
         string fileNameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
@@ -332,25 +338,6 @@ public class AudioMetadataReader
             codecInfo.Contains("mpeg", StringComparison.OrdinalIgnoreCase))
             return AudioCodec.MP3;
         return AudioCodec.AAC;
-    }
-
-    /// <summary>
-    /// Mendeteksi bit depth audio secara akurat dari properti TagLib.
-    /// </summary>
-    private static BitDepth DetectBitDepth(Properties properties, AudioCodec codec)
-    {
-        if (codec is AudioCodec.DSD_DSF or AudioCodec.DSD_DFF)
-        {
-            return BitDepth.DSD1Bit;
-        }
-
-        int bits = properties.BitsPerSample;
-        return bits switch
-        {
-            >= 32 => BitDepth.Bit32Float,
-            >= 24 => BitDepth.Bit24,
-            _     => BitDepth.Bit16
-        };
     }
 
     /// <summary>

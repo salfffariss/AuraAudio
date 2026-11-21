@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace AuraAudio.Core.Models;
 
@@ -144,7 +145,7 @@ public record AudioIntegrityReport
                 AuthenticityVerdict.VerifiedLossless => SourceSpec.IsHiRes
                     ? (en ? "Genuine Hi-Res Lossless" : "Hi-Res Lossless Asli")
                     : SourceSpec.SampleRateHz < 44_100
-                        ? (en ? $"Genuine Lossless ({SourceSpec.SampleRateHz / 1000.0:F1} kHz)" : $"Lossless Asli ({SourceSpec.SampleRateHz / 1000.0:F1} kHz)")
+                        ? (en ? $"Genuine Lossless ({AudioStreamSpec.FormatSampleRateKhz(SourceSpec.SampleRateHz)})" : $"Lossless Asli ({AudioStreamSpec.FormatSampleRateKhz(SourceSpec.SampleRateHz)})")
                         : (en ? "Genuine Lossless (CD Quality)" : "Lossless Asli (Kualitas CD)"),
                 AuthenticityVerdict.AcousticNaturalRollOff => en
                     ? "Genuine Lossless (Soft Acoustic)"
@@ -229,10 +230,10 @@ public record AudioIntegrityReport
     {
         get
         {
-            string chText = SourceSpec.Channels == 2 ? "Stereo" : $"{SourceSpec.Channels} ch";
+            string chText = AudioStreamSpec.FormatChannelLabel(SourceSpec.Channels);
             if (SourceSpec.BitrateKbps > 0)
             {
-                return $"{SourceSpec.Codec} • {SourceSpec.BitrateKbps} kbps • {chText}";
+                return $"{SourceSpec.Codec} • {SourceSpec.FormattedBitrate} • {chText}";
             }
             return $"{SourceSpec.Codec} • {chText}";
         }
@@ -274,14 +275,14 @@ public record AudioIntegrityReport
             bool en = IsEnglish;
             if (SourceSpec.IsDsd)
             {
-                double mhz = Math.Round(SourceSpec.SampleRateHz / 1_000_000.0, 2);
-                return $"{mhz:F2} MHz (1-bit DSD)";
+                string mhz = (SourceSpec.SampleRateHz / 1_000_000.0).ToString("0.00", CultureInfo.InvariantCulture);
+                return $"{mhz} MHz (1-bit DSD)";
             }
-            double srKhz = SourceSpec.SampleRateHz / 1000.0;
-            double maxKhz = NyquistLimitHz / 1000.0;
+            string srText = AudioStreamSpec.FormatSampleRateKhz(SourceSpec.SampleRateHz);
+            string maxKhz = (NyquistLimitHz / 1000.0).ToString("0.00", CultureInfo.InvariantCulture);
             return en
-                ? $"{srKhz:F1} kHz (Max {maxKhz:F2} kHz)"
-                : $"{srKhz:F1} kHz (Maks {maxKhz:F2} kHz)";
+                ? $"{srText} (Max {maxKhz} kHz)"
+                : $"{srText} (Maks {maxKhz} kHz)";
         }
     }
 
