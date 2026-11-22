@@ -19,5 +19,8 @@
     <sys:Double x:Key="Spring.Response.Panel">0.28</sys:Double>
     <sys:Double x:Key="Spring.Response.Stage">0.34</sys:Double>
     <sys:Double x:Key="Spring.Response.ReducedCrossFade">0.14</sys:Double>
+    <sys:Double x:Key="Spring.Response.LyricsScroll">0.42</sys:Double>
+    <sys:Double x:Key="Spring.Response.LyricsEmphasis">0.26</sys:Double>
+    <sys:Double x:Key="Spring.Response.LyricsWheel">0.18</sys:Double>
 
 </ResourceDictionary>

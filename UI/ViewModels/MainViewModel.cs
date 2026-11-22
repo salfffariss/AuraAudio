@@ -2427,7 +2427,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             _ = Lyrics.LoadForTrackAsync(s.CurrentTrack);
         }
-        Lyrics.UpdatePlaybackPosition(s.CurrentTime);
+        Lyrics.UpdatePlaybackPosition(s.CurrentTime, isPlaying: s.Status == PlaybackStatus.Playing);
 
         // Sinkronisasi status dan metadata ke Windows 11 SMTC
         if (trackChanged || _lastKnownStatus != s.Status)

@@ -2,9 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:controls="clr-namespace:AuraAudio.UI.Controls"
         xmlns:helpers="clr-namespace:AuraAudio.UI.Helpers"
         xmlns:views="clr-namespace:AuraAudio.UI.Views"
-        Title="AuraAudio v2.0.3 Mini-Player"
+        Title="AuraAudio v2.1.0 Mini-Player"
         Width="350"
         Height="160"
         WindowStyle="None"
@@ -46,6 +47,15 @@
                   Grid.Row="0"
                   Background="Transparent"
                   MouseLeftButtonDown="MiniHeader_MouseLeftButtonDown">
+
+                <!-- Compact-Mode Artwork-Derived Backdrop (2 calm blobs + >=48% black scrim; collapsed behind AlbumView) -->
+                <controls:ImmersiveBackdropControl x:Name="MiniBackdrop"
+                                                   CompactMode="True"
+                                                   ScrimMode="MiniCompact"
+                                                   CoverArtCacheKey="{Binding CurrentTrack.CoverArtCacheKey}"
+                                                   IsPlaying="{Binding IsPlaying}"
+                                                   IsAnimatedBackdropEnabled="{Binding Settings.AnimatedBackdropEnabled}"
+                                                   Visibility="{Binding Presentation.IsMiniPlayerAlbumView, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=Inverse}" />
 
                 <!-- MODE A: DEFAULT COMPACT VIEW (350x160) -->
                 <Grid Margin="12,10,12,8"
@@ -445,19 +455,28 @@
                     Grid.Row="1"
                     Height="0"
                     ClipToBounds="True"
-                    Padding="12,10"
                     Background="{StaticResource Brush.Surface}"
                     BorderBrush="{StaticResource Brush.Border.Hairline}"
                     BorderThickness="0,1,0,0"
                     Visibility="Collapsed">
-                <Grid Height="240" VerticalAlignment="Top">
-                    <views:QueuePaneView ShowHeaderTabs="True"
-                                         ClearButtonAutomationId="Aura.MiniPlayer.QueueClear"
-                                         Visibility="{Binding Presentation.IsMiniPlayerQueueActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                <Grid Height="260" VerticalAlignment="Top">
+                    <controls:ImmersiveBackdropControl x:Name="MiniTrayBackdrop"
+                                                       CompactMode="True"
+                                                       ScrimMode="MiniTray"
+                                                       CoverArtCacheKey="{Binding CurrentTrack.CoverArtCacheKey}"
+                                                       IsPlaying="{Binding IsPlaying}"
+                                                       IsAnimatedBackdropEnabled="{Binding Settings.AnimatedBackdropEnabled}"
+                                                       IsHostActive="{Binding Presentation.IsMiniPlayerPaneExpanded}" />
 
-                    <views:LyricsView IsFullScreenMode="False"
-                                      AutomationProperties.AutomationId="Aura.MiniPlayer.LyricsList"
-                                      Visibility="{Binding Presentation.IsMiniPlayerLyricsActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <Grid Margin="12,10" Height="240" VerticalAlignment="Top">
+                        <views:QueuePaneView ShowHeaderTabs="True"
+                                             ClearButtonAutomationId="Aura.MiniPlayer.QueueClear"
+                                             Visibility="{Binding Presentation.IsMiniPlayerQueueActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
+
+                        <views:LyricsView IsFullScreenMode="False"
+                                          AutomationProperties.AutomationId="Aura.MiniPlayer.LyricsList"
+                                          Visibility="{Binding Presentation.IsMiniPlayerLyricsActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </Grid>
                 </Grid>
             </Border>
         </Grid>

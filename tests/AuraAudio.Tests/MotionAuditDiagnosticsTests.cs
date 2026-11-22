@@ -886,14 +886,10 @@ public class MotionAuditDiagnosticsTests
                     var paneLyrics = FindVisualChild<LyricsView>((Border)win.FindName("RightSplitPaneBorder"));
                     if (paneLyrics != null)
                     {
-                        var llist = (ListBox)paneLyrics.FindName("SyncedLinesList");
-                        var lsv = FindVisualChild<ScrollViewer>(llist);
-                        if (lsv != null)
-                        {
-                            report.AppendLine(AuditScrollOffsetTransition(
-                                win, "Audit_Lyrics_AutoScroll", lsv, isHorizontal: false,
-                                () => vm.Lyrics.UpdatePlaybackPosition(TimeSpan.FromSeconds(70))));
-                        }
+                        var viewport = paneLyrics.SyncedViewportControl;
+                        report.AppendLine(AuditValueOffsetTransition(
+                            win, "Audit_Lyrics_AutoScroll", () => viewport.CurrentScrollOffset,
+                            () => vm.Lyrics.UpdatePlaybackPosition(TimeSpan.FromSeconds(70))));
                     }
                     vm.Presentation.CloseRightPaneCommand.Execute(null);
                     MotionProbe.PumpDispatcher(320);
@@ -1135,6 +1131,31 @@ public class MotionAuditDiagnosticsTests
         int steps = 0;
         for (int i = 1; i < hs.Count; i++) if (Math.Abs(hs[i] - hs[i - 1]) > 0.05) steps++;
         return $"{name,-38} | H:{hs[0]:F2}->{hs[Math.Min(1, hs.Count - 1)]:F2}->{hs[^1]:F2} | 1stJump={firstPct:F1}% | movingFrames={steps}";
+    }
+
+    private static string AuditValueOffsetTransition(Window win, string name, Func<double> readValue, Action trigger)
+    {
+        win.UpdateLayout();
+        MotionProbe.PumpDispatcher(30);
+        var offs = new List<double> { readValue() };
+        var frame = new DispatcherFrame();
+        var sw = Stopwatch.StartNew();
+
+        void OnRender(object? s, EventArgs e)
+        {
+            offs.Add(readValue());
+            if (sw.Elapsed.TotalMilliseconds >= 450) { CompositionTarget.Rendering -= OnRender; frame.Continue = false; }
+        }
+
+        trigger();
+        CompositionTarget.Rendering += OnRender;
+        Dispatcher.PushFrame(frame);
+
+        double travel = Math.Abs(offs[^1] - offs[0]);
+        double firstPct = travel > 2 && offs.Count > 1 ? Math.Abs(offs[1] - offs[0]) / travel * 100.0 : 0;
+        int steps = 0;
+        for (int i = 1; i < offs.Count; i++) if (Math.Abs(offs[i] - offs[i - 1]) > 0.3) steps++;
+        return $"{name,-38} | Off:{offs[0]:F1}->{offs[Math.Min(1, offs.Count - 1)]:F1}->{offs[^1]:F1} | 1stJump={firstPct:F1}% | movingFrames={steps}";
     }
 
     private static string AuditScrollOffsetTransition(Window win, string name, ScrollViewer sv, bool isHorizontal, Action trigger)

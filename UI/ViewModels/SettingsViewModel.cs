@@ -35,6 +35,7 @@ public class SettingsViewModel : ViewModelBase
     private string _exportDirectory = string.Empty;
     private string _selectedLanguage;
     private bool _forceReducedMotion;
+    private bool _animatedBackdropEnabled = true;
     private string _engineStatsSummary = string.Empty;
 
     public HardwareConfigViewModel HardwareConfig { get; }
@@ -159,6 +160,18 @@ public class SettingsViewModel : ViewModelBase
         }
     }
 
+    public bool AnimatedBackdropEnabled
+    {
+        get => _animatedBackdropEnabled;
+        set
+        {
+            if (SetProperty(ref _animatedBackdropEnabled, value))
+            {
+                _db.SetSetting("animated_backdrop", value ? "1" : "0");
+            }
+        }
+    }
+
     public string AppVersionText
     {
         get
@@ -174,7 +187,7 @@ public class SettingsViewModel : ViewModelBase
             }
             string ver = !string.IsNullOrWhiteSpace(infoVer)
                 ? infoVer
-                : (asm.GetName().Version?.ToString(3) ?? "2.0.3");
+                : (asm.GetName().Version?.ToString(3) ?? "2.1.0");
             return $"AuraAudio v{ver} (.NET 9 / WPF Pure Monochrome)";
         }
     }
@@ -220,6 +233,9 @@ public class SettingsViewModel : ViewModelBase
             _forceReducedMotion = true;
             SpringAnimator.ForceReducedMotionOverride = true;
         }
+
+        string? savedBackdrop = _db.GetSetting("animated_backdrop");
+        _animatedBackdropEnabled = savedBackdrop != "0";
 
         NavigateCategoryCommand = new RelayCommand(p =>
         {

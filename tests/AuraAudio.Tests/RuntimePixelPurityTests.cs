@@ -95,7 +95,7 @@ public class RuntimePixelPurityTests
                 Pump(100);
 
                 windowTitle = win.Title;
-                Assert.Contains("v2.0.3", windowTitle, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("v2.1.0", windowTitle, StringComparison.OrdinalIgnoreCase);
 
                 // 1-5. Settings in all 5 categories
                 vm.CurrentView = "Settings";
@@ -122,7 +122,7 @@ public class RuntimePixelPurityTests
                 }
 
                 Assert.NotNull(aboutVersionText);
-                Assert.Contains("v2.0.3", aboutVersionText, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("v2.1.0", aboutVersionText, StringComparison.OrdinalIgnoreCase);
 
                 // 6. Audio Inspector (no track / no artwork)
                 vm.CurrentView = "Inspector";
