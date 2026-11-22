@@ -24,6 +24,9 @@ public partial class MiniPlayerWindow : Window
     private readonly MainViewModel _viewModel;
     private bool _isDraggingScrubber;
 
+    internal Controls.ImmersiveBackdropControl StageBackdropControl => MiniBackdrop;
+    internal Controls.ImmersiveBackdropControl TrayBackdropControl => MiniTrayBackdrop;
+
     public MiniPlayerWindow(MainViewModel viewModel)
     {
         InitializeComponent();

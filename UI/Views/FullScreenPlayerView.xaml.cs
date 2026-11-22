@@ -30,6 +30,8 @@ public partial class FullScreenPlayerView : UserControl
         private set => SetValue(ArtworkSizeProperty, value);
     }
 
+    internal Controls.ImmersiveBackdropControl BackdropControl => FullScreenBackdrop;
+
     private PlayerPresentationViewModel? _subscribedPresentation;
     private LyricsViewModel? _subscribedLyrics;
     private bool _isDraggingScrubber;

@@ -1,17 +1,29 @@
 <UserControl x:Class="AuraAudio.UI.Views.FullScreenPlayerView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:AuraAudio.UI.Controls"
              xmlns:helpers="clr-namespace:AuraAudio.UI.Helpers"
              xmlns:views="clr-namespace:AuraAudio.UI.Views"
              x:Name="Root"
              Background="{StaticResource Brush.Rail}"
              SizeChanged="FullScreenPlayer_SizeChanged">
 
-    <Grid x:Name="StageRoot">
+    <Grid x:Name="StageRoot" Background="Transparent">
         <Grid.RowDefinitions>
             <RowDefinition Height="52" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
+
+        <!-- Full-Bleed Immersive Artwork-Derived Backdrop (Rule 3 allowlisted layer; all foreground stays pure monochrome) -->
+        <controls:ImmersiveBackdropControl x:Name="FullScreenBackdrop"
+                                           Grid.Row="0"
+                                           Grid.RowSpan="2"
+                                           Panel.ZIndex="-1"
+                                           CoverArtCacheKey="{Binding CurrentTrack.CoverArtCacheKey}"
+                                           IsPlaying="{Binding IsPlaying}"
+                                           IsAnimatedBackdropEnabled="{Binding Settings.AnimatedBackdropEnabled}"
+                                           IsHostActive="{Binding Presentation.IsFullScreenOpen}"
+                                           ScrimMode="FullScreen" />
 
         <!-- Top Minimal Chrome (Draggable Empty Space + Lyrics Toggle / Mini / Exit) -->
         <Grid Grid.Row="0"
