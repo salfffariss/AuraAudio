@@ -355,17 +355,14 @@
                 </Grid>
             </StackPanel>
 
-            <!-- COL 3: SPLIT-SCREEN SYNCED / STATIC LYRICS HOST -->
+            <!-- COL 3: SPLIT-SCREEN SYNCED / STATIC LYRICS HOST (Cardless, borderless) -->
             <Border x:Name="LyricsStageHost"
                     Grid.Column="3"
-                    MaxWidth="580"
-                    MaxHeight="680"
+                    MaxWidth="620"
                     VerticalAlignment="Stretch"
-                    Padding="20,18"
-                    CornerRadius="{StaticResource Radius.Sheet}"
-                    Background="{StaticResource Brush.Surface}"
-                    BorderBrush="{StaticResource Brush.Border.Hairline}"
-                    BorderThickness="1"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
                     Visibility="Collapsed">
                 <views:LyricsView IsFullScreenMode="True"
                                   AutomationProperties.AutomationId="Aura.FullScreen.LyricsList" />

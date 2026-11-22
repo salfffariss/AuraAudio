@@ -1,21 +1,17 @@
-using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
 using System.Windows.Media;
-using AuraAudio.UI.Helpers;
+using AuraAudio.UI.Controls;
 using AuraAudio.UI.ViewModels;
 
 namespace AuraAudio.UI.Views;
 
 /// <summary>
-/// v2.0.0 Lyrics View (03_design_spec.md Part B.11 & D.8):
-/// Hosted inside both the 360px Right Split Pane and the Full-Screen Stage split (and Mini-Player tray).
-/// Supports all 5 LyricsGroups states, WCAG-verified distance luminance tiers,
-/// click-to-seek in synced mode, 4-second manual-scroll pause, and plain-text fallback.
+/// v2.1 Lyrics View shared across Full-Screen Split (IsFullScreenMode=True),
+/// 360px Right Split Pane (IsFullScreenMode=False), and Mini-Player Tray (IsFullScreenMode=False).
+/// Delegates synced rendering to the zero-layout pooled SyncedLyricsViewport while preserving
+/// all 5 LyricsViewState states, plain-text fallback, keyboard navigation, and unobtrusive Import.
 /// </summary>
 public partial class LyricsView : UserControl
 {
@@ -26,17 +22,23 @@ public partial class LyricsView : UserControl
             typeof(LyricsView),
             new PropertyMetadata(false, OnFullScreenModeChanged));
 
-    public static readonly DependencyProperty ActiveFontSizeProperty =
-        DependencyProperty.Register(nameof(ActiveFontSize), typeof(double), typeof(LyricsView), new PropertyMetadata(18.0));
+    public static readonly DependencyProperty PlainFontSizeProperty =
+        DependencyProperty.Register(nameof(PlainFontSize), typeof(double), typeof(LyricsView), new PropertyMetadata(15.0));
 
-    public static readonly DependencyProperty InactiveFontSizeProperty =
-        DependencyProperty.Register(nameof(InactiveFontSize), typeof(double), typeof(LyricsView), new PropertyMetadata(16.0));
+    public static readonly DependencyProperty PlainLineHeightProperty =
+        DependencyProperty.Register(nameof(PlainLineHeight), typeof(double), typeof(LyricsView), new PropertyMetadata(24.0));
 
-    public static readonly DependencyProperty ActiveLineHeightProperty =
-        DependencyProperty.Register(nameof(ActiveLineHeight), typeof(double), typeof(LyricsView), new PropertyMetadata(25.0));
+    public static readonly DependencyProperty PlainFontWeightProperty =
+        DependencyProperty.Register(nameof(PlainFontWeight), typeof(FontWeight), typeof(LyricsView), new PropertyMetadata(FontWeights.Normal));
 
-    public static readonly DependencyProperty InactiveLineHeightProperty =
-        DependencyProperty.Register(nameof(InactiveLineHeight), typeof(double), typeof(LyricsView), new PropertyMetadata(22.0));
+    public static readonly DependencyProperty PlainFontFamilyProperty =
+        DependencyProperty.Register(nameof(PlainFontFamily), typeof(FontFamily), typeof(LyricsView), new PropertyMetadata(null));
+
+    public static readonly DependencyProperty PlainTextPaddingProperty =
+        DependencyProperty.Register(nameof(PlainTextPadding), typeof(Thickness), typeof(LyricsView), new PropertyMetadata(new Thickness(10, 16, 12, 48)));
+
+    public static readonly DependencyProperty EdgeMaskBrushProperty =
+        DependencyProperty.Register(nameof(EdgeMaskBrush), typeof(Brush), typeof(LyricsView), new PropertyMetadata(null));
 
     public bool IsFullScreenMode
     {
@@ -44,41 +46,50 @@ public partial class LyricsView : UserControl
         set => SetValue(IsFullScreenModeProperty, value);
     }
 
-    public double ActiveFontSize
+    public double PlainFontSize
     {
-        get => (double)GetValue(ActiveFontSizeProperty);
-        private set => SetValue(ActiveFontSizeProperty, value);
+        get => (double)GetValue(PlainFontSizeProperty);
+        private set => SetValue(PlainFontSizeProperty, value);
     }
 
-    public double InactiveFontSize
+    public double PlainLineHeight
     {
-        get => (double)GetValue(InactiveFontSizeProperty);
-        private set => SetValue(InactiveFontSizeProperty, value);
+        get => (double)GetValue(PlainLineHeightProperty);
+        private set => SetValue(PlainLineHeightProperty, value);
     }
 
-    public double ActiveLineHeight
+    public FontWeight PlainFontWeight
     {
-        get => (double)GetValue(ActiveLineHeightProperty);
-        private set => SetValue(ActiveLineHeightProperty, value);
+        get => (FontWeight)GetValue(PlainFontWeightProperty);
+        private set => SetValue(PlainFontWeightProperty, value);
     }
 
-    public double InactiveLineHeight
+    public FontFamily? PlainFontFamily
     {
-        get => (double)GetValue(InactiveLineHeightProperty);
-        private set => SetValue(InactiveLineHeightProperty, value);
+        get => (FontFamily?)GetValue(PlainFontFamilyProperty);
+        private set => SetValue(PlainFontFamilyProperty, value);
     }
+
+    public Thickness PlainTextPadding
+    {
+        get => (Thickness)GetValue(PlainTextPaddingProperty);
+        private set => SetValue(PlainTextPaddingProperty, value);
+    }
+
+    public Brush? EdgeMaskBrush
+    {
+        get => (Brush?)GetValue(EdgeMaskBrushProperty);
+        private set => SetValue(EdgeMaskBrushProperty, value);
+    }
+
+    internal SyncedLyricsViewport SyncedViewportControl => SyncedViewport;
 
     private LyricsViewModel? _subscribedLyrics;
-    private ScrollViewer? _cachedScrollViewer;
-    private DateTime _manualScrollPauseUntilUtc = DateTime.MinValue;
-    private double _targetScrollOffset;
-    private bool _isAutoScrolling;
-    private long _lastAutoScrollTicks;
 
     public LyricsView()
     {
         InitializeComponent();
-        ApplyTypographyScale(false);
+        ApplyModeTokens(false);
 
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
@@ -90,37 +101,42 @@ public partial class LyricsView : UserControl
     {
         if (d is LyricsView view && e.NewValue is bool fs)
         {
-            view.ApplyTypographyScale(fs);
+            view.ApplyModeTokens(fs);
         }
     }
 
-    private void ApplyTypographyScale(bool isFullScreen)
+    private void ApplyModeTokens(bool isFullScreen)
     {
+        SyncedViewport.IsFullScreenMode = isFullScreen;
+
         if (isFullScreen)
         {
-            ActiveFontSize = 24.0;
-            InactiveFontSize = 20.0;
-            ActiveLineHeight = 32.0;
-            InactiveLineHeight = 28.0;
+            PlainFontSize = 20.0;
+            PlainLineHeight = 32.0;
+            PlainFontWeight = FontWeights.SemiBold;
+            PlainFontFamily = TryFindResource("Font.Display") as FontFamily;
+            PlainTextPadding = new Thickness(12, 24, 16, 56);
+            EdgeMaskBrush = TryFindResource("Brush.Overlay.LyricsEdgeMask") as Brush;
         }
         else
         {
-            ActiveFontSize = 18.0;
-            InactiveFontSize = 16.0;
-            ActiveLineHeight = 25.0;
-            InactiveLineHeight = 22.0;
+            PlainFontSize = 15.0;
+            PlainLineHeight = 24.0;
+            PlainFontWeight = FontWeights.Normal;
+            PlainFontFamily = TryFindResource("Font.Primary") as FontFamily;
+            PlainTextPadding = new Thickness(10, 16, 12, 48);
+            EdgeMaskBrush = TryFindResource("Brush.Overlay.LyricsEdgeMaskCompact") as Brush;
         }
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        ApplyModeTokens(IsFullScreenMode);
         AttachToViewModel();
-        ScrollActiveLineIntoView(immediate: true);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        StopAutoScrollAnimation();
         DetachFromViewModel();
     }
 
@@ -129,19 +145,14 @@ public partial class LyricsView : UserControl
         if (IsLoaded)
         {
             AttachToViewModel();
-            ScrollActiveLineIntoView(immediate: true);
         }
     }
 
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (IsVisible)
+        if (IsVisible && _subscribedLyrics != null)
         {
-            ScrollActiveLineIntoView(immediate: true);
-        }
-        else
-        {
-            StopAutoScrollAnimation();
+            SyncedViewport.SyncToActiveLine(immediate: true);
         }
     }
 
@@ -152,11 +163,19 @@ public partial class LyricsView : UserControl
         {
             _subscribedLyrics = vm.Lyrics;
             _subscribedLyrics.PropertyChanged += OnLyricsPropertyChanged;
+            SyncedViewport.AttachLyrics(_subscribedLyrics);
+        }
+        else if (DataContext is LyricsViewModel directLyrics)
+        {
+            _subscribedLyrics = directLyrics;
+            _subscribedLyrics.PropertyChanged += OnLyricsPropertyChanged;
+            SyncedViewport.AttachLyrics(_subscribedLyrics);
         }
     }
 
     private void DetachFromViewModel()
     {
+        SyncedViewport.DetachLyrics();
         if (_subscribedLyrics != null)
         {
             _subscribedLyrics.PropertyChanged -= OnLyricsPropertyChanged;
@@ -166,150 +185,9 @@ public partial class LyricsView : UserControl
 
     private void OnLyricsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(LyricsViewModel.ActiveLineIndex))
+        if (e.PropertyName == nameof(LyricsViewModel.State) && _subscribedLyrics?.IsStaticLoaded == true)
         {
-            ScrollActiveLineIntoView(immediate: false);
-        }
-        else if (e.PropertyName == nameof(LyricsViewModel.State))
-        {
-            _manualScrollPauseUntilUtc = DateTime.MinValue;
-            StopAutoScrollAnimation();
-            GetSyncedScrollViewer()?.ScrollToTop();
-        }
-    }
-
-    private ScrollViewer? GetSyncedScrollViewer()
-    {
-        if (_cachedScrollViewer != null) return _cachedScrollViewer;
-        _cachedScrollViewer = FindVisualChild<ScrollViewer>(SyncedLinesList);
-        return _cachedScrollViewer;
-    }
-
-    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
-    {
-        int count = VisualTreeHelper.GetChildrenCount(parent);
-        for (int i = 0; i < count; i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is T match) return match;
-            var nested = FindVisualChild<T>(child);
-            if (nested != null) return nested;
-        }
-        return null;
-    }
-
-    private void SyncedScrollViewer_UserInteraction(object sender, InputEventArgs e)
-    {
-        // Only treat wheel scrolling or ScrollBar dragging as manual scroll pause (do not pause when clicking a lyric line to seek!)
-        if (e is MouseWheelEventArgs)
-        {
-            _manualScrollPauseUntilUtc = DateTime.UtcNow.AddSeconds(4.0);
-            StopAutoScrollAnimation();
-            return;
-        }
-
-        if (e is MouseButtonEventArgs && IsInsideScrollBar(e.OriginalSource as DependencyObject))
-        {
-            _manualScrollPauseUntilUtc = DateTime.UtcNow.AddSeconds(4.0);
-            StopAutoScrollAnimation();
-        }
-    }
-
-    private static bool IsInsideScrollBar(DependencyObject? source) =>
-        AuraAudio.UI.Helpers.TreeNavigationHelper.FindAncestor<ScrollBar>(source) != null;
-
-    private void ScrollActiveLineIntoView(bool immediate)
-    {
-        if (!IsLoaded || !IsVisible || _subscribedLyrics == null) return;
-        if (!_subscribedLyrics.IsSynced) return;
-        if (!immediate && DateTime.UtcNow < _manualScrollPauseUntilUtc) return;
-
-        int activeIdx = _subscribedLyrics.ActiveLineIndex;
-        if (activeIdx < 0 || activeIdx >= _subscribedLyrics.Lines.Count) return;
-
-        Dispatcher.BeginInvoke(() =>
-        {
-            if (!IsLoaded || !IsVisible || _subscribedLyrics == null) return;
-            if (activeIdx < 0 || activeIdx >= _subscribedLyrics.Lines.Count) return;
-
-            var scrollViewer = GetSyncedScrollViewer();
-            if (scrollViewer == null) return;
-
-            var container = SyncedLinesList.ItemContainerGenerator.ContainerFromIndex(activeIdx) as FrameworkElement;
-            if (container == null)
-            {
-                // Realize virtualized target line before computing its centered pixel offset
-                SyncedLinesList.ScrollIntoView(_subscribedLyrics.Lines[activeIdx]);
-                SyncedLinesList.UpdateLayout();
-                container = SyncedLinesList.ItemContainerGenerator.ContainerFromIndex(activeIdx) as FrameworkElement;
-                if (container == null) return;
-            }
-
-            try
-            {
-                Point relativeInViewport = container.TransformToAncestor(scrollViewer).Transform(new Point(0, 0));
-                double absoluteY = scrollViewer.VerticalOffset + relativeInViewport.Y;
-                double viewport = scrollViewer.ViewportHeight;
-                double anchorY = viewport * 0.32;
-                double desired = Math.Clamp(absoluteY - anchorY, 0.0, scrollViewer.ScrollableHeight);
-
-                if (immediate || SpringAnimator.IsReducedMotion)
-                {
-                    StopAutoScrollAnimation();
-                    scrollViewer.ScrollToVerticalOffset(desired);
-                }
-                else
-                {
-                    _targetScrollOffset = desired;
-                    if (!_isAutoScrolling)
-                    {
-                        _isAutoScrolling = true;
-                        _lastAutoScrollTicks = Stopwatch.GetTimestamp();
-                        CompositionTarget.Rendering += OnAutoScrollTick;
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore transient layout transform errors during view teardown
-            }
-        }, System.Windows.Threading.DispatcherPriority.Loaded);
-    }
-
-    private void OnAutoScrollTick(object? sender, EventArgs e)
-    {
-        var scrollViewer = GetSyncedScrollViewer();
-        if (!IsLoaded || !IsVisible || scrollViewer == null || DateTime.UtcNow < _manualScrollPauseUntilUtc)
-        {
-            StopAutoScrollAnimation();
-            return;
-        }
-
-        long now = Stopwatch.GetTimestamp();
-        double dt = Math.Clamp((double)(now - _lastAutoScrollTicks) / Stopwatch.Frequency, 0.001, 0.05);
-        _lastAutoScrollTicks = now;
-
-        double current = scrollViewer.VerticalOffset;
-        double delta = _targetScrollOffset - current;
-
-        if (Math.Abs(delta) < 0.75)
-        {
-            scrollViewer.ScrollToVerticalOffset(_targetScrollOffset);
-            StopAutoScrollAnimation();
-            return;
-        }
-
-        // Frame-rate-independent exponential smoothing (identical feel at 60Hz, 120Hz, 144Hz+)
-        double alpha = 1.0 - Math.Exp(-12.0 * dt);
-        scrollViewer.ScrollToVerticalOffset(current + (delta * alpha));
-    }
-
-    private void StopAutoScrollAnimation()
-    {
-        if (_isAutoScrolling)
-        {
-            CompositionTarget.Rendering -= OnAutoScrollTick;
-            _isAutoScrolling = false;
+            PlainLyricsScroll.ScrollToTop();
         }
     }
 }
