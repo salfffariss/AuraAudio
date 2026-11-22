@@ -66,11 +66,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/release/build_release.
   - Window-position sensitivity: on tracks `>= 10 s`, shifting the main FFT window by `0.10–0.50 s` produced a `22%` any-perturbation verdict flip rate on the DEV benchmark set (`21/22` flips on tracks `>= 10 s`; `2.6%` on `< 10 s` short clips).
   - 1-bit DSD files report `Inconclusive` with a representative curve (`IsSyntheticSpectrum = true`).
 - **UI & Display:** `App.xaml` defaults to `Strings.id.xaml` until English is selected in `Settings > General`; secondary detail views render in outer `ScrollViewer`s while primary lists are virtualized; 32-bit integer PCM streams currently display a `32-bit float` format badge (tracked for `v2.0.3`).
-- See [docs/releases/v2.0.2.md](docs/releases/v2.0.2.md) for the full verification summary, benchmark tables, and release checksums.
+- See [docs/releases/v2.0.3.md](docs/releases/v2.0.3.md) for v2.0.3 packaging & installation details, and [docs/releases/v2.0.2.md](docs/releases/v2.0.2.md) for the full FLAC/forensic benchmark tables.
 
 ## Documentation & License
 
-- Release Notes: [docs/releases/v2.0.2.md](docs/releases/v2.0.2.md) (previous: [docs/releases/v2.0.1.md](docs/releases/v2.0.1.md), [docs/releases/v2.0.0.md](docs/releases/v2.0.0.md))
+- Release Notes: [docs/releases/v2.0.3.md](docs/releases/v2.0.3.md) (previous: [docs/releases/v2.0.2.md](docs/releases/v2.0.2.md), [docs/releases/v2.0.1.md](docs/releases/v2.0.1.md), [docs/releases/v2.0.0.md](docs/releases/v2.0.0.md))
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 - Forensic Audio Authenticity Methodology (ID): [docs/METODE_ANALISIS_KEASLIAN_AUDIO.md](docs/METODE_ANALISIS_KEASLIAN_AUDIO.md)
 - Third-Party Notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

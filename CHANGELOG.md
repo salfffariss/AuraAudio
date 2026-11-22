@@ -4,7 +4,7 @@ All notable changes to AuraAudio are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.3] - Unreleased
+## [2.0.3] - 2026-11-22
 
 ### Added
 - **Windows Setup Wizard (`installer/AuraAudio.iss`):** Added an Inno Setup 6 installer generating `AuraAudio-v<version>-Setup-win-x64.exe` with per-user install by default (`%LocalAppData%\Programs\AuraAudio`, no UAC) plus optional all-users install (`C:\Program Files\AuraAudio`), Start Menu and Desktop shortcuts, official Windows Installed Apps uninstaller, `App Paths` (`Win+R` → `auraaudio`), and in-place upgrade support preserving `library.db`.
@@ -14,6 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - **Read-only install-directory safety (`DatabaseManager.cs`, `ThumbnailCacheManager.cs`, `CoverArtLoader.cs`, `App.xaml.cs`, `MainViewModel.cs`):** Moved disk thumbnail cache and diagnostic logs out of the executable directory into `%LocalAppData%\AuraAudio\`, allowing AuraAudio to run cleanly from read-only folders such as `C:\Program Files\AuraAudio`.
 - **Dynamic smoke-test version & install-dir checks (`tests/ui/smoke_ui.ps1`):** Reads target version directly from `AuraAudio.csproj` and asserts zero log or `Cache/` writes inside the executable directory.
+
+### Fixed
+- **Headless software/null audio sink initialization (`Audio/Controller/AudiophilePlaybackController.cs`):** Provided a virtual silent `AudioDevice` when running non-WASAPI software output engines on machines without physical audio hardware (such as Windows Server CI runners).
 
 ## [2.0.2] - 2026-11-21
 
