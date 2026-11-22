@@ -80,5 +80,16 @@
         <Rectangle x:Name="ScrimOverlay"
                    Fill="{StaticResource Brush.Overlay.BackdropScrim}"
                    IsHitTestVisible="False" />
+
+        <!-- Optional Spatially Varying Pure-Black Scrim Layers (Collapsed under SafeDefault / uniform presets) -->
+        <Rectangle x:Name="SpatialScrimTop"
+                   Visibility="Collapsed"
+                   IsHitTestVisible="False" />
+        <Rectangle x:Name="SpatialScrimLyrics"
+                   Visibility="Collapsed"
+                   IsHitTestVisible="False" />
+        <Rectangle x:Name="SpatialScrimBottom"
+                   Visibility="Collapsed"
+                   IsHitTestVisible="False" />
     </Grid>
 </UserControl>

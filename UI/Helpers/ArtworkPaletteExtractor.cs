@@ -37,7 +37,16 @@ public readonly record struct BackdropTuningPreset(
     double FullScreenScrimMidOpacity,
     double FullScreenScrimBottomOpacity,
     double MiniCompactScrimOpacity,
-    double MiniTrayScrimOpacity);
+    double MiniTrayScrimOpacity,
+    double LightnessLift = 0.0,
+    double ChromaGain = 1.0,
+    bool UseSpatialScrim = false,
+    double SpatialAmbientOpacity = 0.0,
+    double SpatialTopBarOpacity = 0.0,
+    double SpatialLyricsColumnOpacity = 0.0,
+    double SpatialBottomControlsOpacity = 0.0,
+    double SpatialMiniLeftGlowOpacity = 0.0,
+    double SpatialMiniRightControlsOpacity = 0.0);
 
 /// <summary>
 /// Immutable 4-color artwork-derived palette (1 deep base + 3 atmospheric radial blobs)
@@ -157,6 +166,132 @@ public static class ArtworkPaletteExtractor
         FullScreenScrimBottomOpacity: SafeFullScreenScrimBottomOpacity,
         MiniCompactScrimOpacity: SafeMiniCompactScrimOpacity,
         MiniTrayScrimOpacity: SafeMiniTrayScrimOpacity);
+
+    // Preset 2 (Phase 4 Visual Tuning Candidate): BalancedVivid
+    // Uniform vertical scrim with richer OKLCH chroma and slightly higher luminance ceiling; clears all readability gates.
+    public const double BalancedMaxLinearLuminance = 0.140;
+    public const double BalancedFullScreenScrimTopOpacity = 0.45;
+    public const double BalancedFullScreenScrimMidOpacity = 0.47;
+    public const double BalancedFullScreenScrimBottomOpacity = 0.54;
+    public const double BalancedMiniCompactScrimOpacity = 0.49;
+    public const double BalancedMiniTrayScrimOpacity = 0.55;
+    public const double BalancedLightnessLift = 0.05;
+    public const double BalancedChromaGain = 1.25;
+
+    public const double BalancedBaseMinL = 0.18;
+    public const double BalancedBaseMaxL = 0.27;
+    public const double BalancedBaseMinC = 0.04;
+    public const double BalancedBaseMaxC = 0.10;
+
+    public const double BalancedBlob1MinL = 0.38;
+    public const double BalancedBlob1MaxL = 0.51;
+    public const double BalancedBlob1MinC = 0.09;
+    public const double BalancedBlob1MaxC = 0.21;
+
+    public const double BalancedBlob2MinL = 0.32;
+    public const double BalancedBlob2MaxL = 0.45;
+    public const double BalancedBlob2MinC = 0.08;
+    public const double BalancedBlob2MaxC = 0.19;
+
+    public const double BalancedBlob3MinL = 0.41;
+    public const double BalancedBlob3MaxL = 0.53;
+    public const double BalancedBlob3MinC = 0.09;
+    public const double BalancedBlob3MaxC = 0.21;
+
+    public static BackdropTuningPreset BalancedVivid { get; } = new(
+        Name: "BalancedVivid",
+        MaxLinearLuminance: BalancedMaxLinearLuminance,
+        BaseMinL: BalancedBaseMinL,
+        BaseMaxL: BalancedBaseMaxL,
+        BaseMinC: BalancedBaseMinC,
+        BaseMaxC: BalancedBaseMaxC,
+        Blob1MinL: BalancedBlob1MinL,
+        Blob1MaxL: BalancedBlob1MaxL,
+        Blob1MinC: BalancedBlob1MinC,
+        Blob1MaxC: BalancedBlob1MaxC,
+        Blob2MinL: BalancedBlob2MinL,
+        Blob2MaxL: BalancedBlob2MaxL,
+        Blob2MinC: BalancedBlob2MinC,
+        Blob2MaxC: BalancedBlob2MaxC,
+        Blob3MinL: BalancedBlob3MinL,
+        Blob3MaxL: BalancedBlob3MaxL,
+        Blob3MinC: BalancedBlob3MinC,
+        Blob3MaxC: BalancedBlob3MaxC,
+        FullScreenScrimTopOpacity: BalancedFullScreenScrimTopOpacity,
+        FullScreenScrimMidOpacity: BalancedFullScreenScrimMidOpacity,
+        FullScreenScrimBottomOpacity: BalancedFullScreenScrimBottomOpacity,
+        MiniCompactScrimOpacity: BalancedMiniCompactScrimOpacity,
+        MiniTrayScrimOpacity: BalancedMiniTrayScrimOpacity,
+        LightnessLift: BalancedLightnessLift,
+        ChromaGain: BalancedChromaGain);
+
+    // Preset 3 (Phase 4 Visual Tuning Candidate): AppleMusicSpatial
+    // Luminous glow around cover artwork paired with a spatially varying pure-black scrim
+    // (lighter in open ambient areas, deeper behind the lyrics column, top bar, and lower controls).
+    public const double SpatialMaxLinearLuminance = 0.220;
+    public const double SpatialAmbientScrimOpacity = 0.18;
+    public const double SpatialTopBarScrimOpacity = 0.50;
+    public const double SpatialLyricsColumnScrimOpacity = 0.50;
+    public const double SpatialBottomControlsScrimOpacity = 0.54;
+    public const double SpatialMiniLeftGlowScrimOpacity = 0.22;
+    public const double SpatialMiniRightControlsScrimOpacity = 0.52;
+    public const double SpatialMiniTrayScrimOpacity = 0.60;
+    public const double SpatialLightnessLift = 0.13;
+    public const double SpatialChromaGain = 1.35;
+
+    public const double SpatialBaseMinL = 0.20;
+    public const double SpatialBaseMaxL = 0.30;
+    public const double SpatialBaseMinC = 0.05;
+    public const double SpatialBaseMaxC = 0.12;
+
+    public const double SpatialBlob1MinL = 0.44;
+    public const double SpatialBlob1MaxL = 0.60;
+    public const double SpatialBlob1MinC = 0.11;
+    public const double SpatialBlob1MaxC = 0.24;
+
+    public const double SpatialBlob2MinL = 0.36;
+    public const double SpatialBlob2MaxL = 0.52;
+    public const double SpatialBlob2MinC = 0.10;
+    public const double SpatialBlob2MaxC = 0.22;
+
+    public const double SpatialBlob3MinL = 0.48;
+    public const double SpatialBlob3MaxL = 0.62;
+    public const double SpatialBlob3MinC = 0.11;
+    public const double SpatialBlob3MaxC = 0.24;
+
+    public static BackdropTuningPreset AppleMusicSpatial { get; } = new(
+        Name: "AppleMusicSpatial",
+        MaxLinearLuminance: SpatialMaxLinearLuminance,
+        BaseMinL: SpatialBaseMinL,
+        BaseMaxL: SpatialBaseMaxL,
+        BaseMinC: SpatialBaseMinC,
+        BaseMaxC: SpatialBaseMaxC,
+        Blob1MinL: SpatialBlob1MinL,
+        Blob1MaxL: SpatialBlob1MaxL,
+        Blob1MinC: SpatialBlob1MinC,
+        Blob1MaxC: SpatialBlob1MaxC,
+        Blob2MinL: SpatialBlob2MinL,
+        Blob2MaxL: SpatialBlob2MaxL,
+        Blob2MinC: SpatialBlob2MinC,
+        Blob2MaxC: SpatialBlob2MaxC,
+        Blob3MinL: SpatialBlob3MinL,
+        Blob3MaxL: SpatialBlob3MaxL,
+        Blob3MinC: SpatialBlob3MinC,
+        Blob3MaxC: SpatialBlob3MaxC,
+        FullScreenScrimTopOpacity: SpatialTopBarScrimOpacity,
+        FullScreenScrimMidOpacity: SpatialAmbientScrimOpacity,
+        FullScreenScrimBottomOpacity: SpatialBottomControlsScrimOpacity,
+        MiniCompactScrimOpacity: SpatialMiniLeftGlowScrimOpacity,
+        MiniTrayScrimOpacity: SpatialMiniTrayScrimOpacity,
+        LightnessLift: SpatialLightnessLift,
+        ChromaGain: SpatialChromaGain,
+        UseSpatialScrim: true,
+        SpatialAmbientOpacity: SpatialAmbientScrimOpacity,
+        SpatialTopBarOpacity: SpatialTopBarScrimOpacity,
+        SpatialLyricsColumnOpacity: SpatialLyricsColumnScrimOpacity,
+        SpatialBottomControlsOpacity: SpatialBottomControlsScrimOpacity,
+        SpatialMiniLeftGlowOpacity: SpatialMiniLeftGlowScrimOpacity,
+        SpatialMiniRightControlsOpacity: SpatialMiniRightControlsScrimOpacity);
 
     private readonly struct OkLabSample
     {
@@ -532,19 +667,19 @@ public static class ArtworkPaletteExtractor
         double h2 = foundBlob2 ? blob2Cluster.HueRadians : h1 - (26.0 * Math.PI / 180.0);
         double h3 = foundBlob3 ? blob3Cluster.HueRadians : h1 + (28.0 * Math.PI / 180.0);
 
-        double lBase = Math.Clamp(baseCluster.L * 0.45, preset.BaseMinL, preset.BaseMaxL);
-        double cBase = Math.Clamp(baseCluster.Chroma * 0.55, preset.BaseMinC, preset.BaseMaxC);
+        double lBase = Math.Clamp((baseCluster.L * 0.45) + (preset.LightnessLift * 0.35), preset.BaseMinL, preset.BaseMaxL);
+        double cBase = Math.Clamp(baseCluster.Chroma * 0.55 * preset.ChromaGain, preset.BaseMinC, preset.BaseMaxC);
 
-        double l1 = Math.Clamp(0.24 + (primary.L * 0.30), preset.Blob1MinL, preset.Blob1MaxL);
-        double c1 = Math.Clamp(primary.Chroma, preset.Blob1MinC, preset.Blob1MaxC);
+        double l1 = Math.Clamp(0.24 + (primary.L * 0.30) + preset.LightnessLift, preset.Blob1MinL, preset.Blob1MaxL);
+        double c1 = Math.Clamp(primary.Chroma * preset.ChromaGain, preset.Blob1MinC, preset.Blob1MaxC);
 
-        double l2Raw = foundBlob2 ? 0.20 + (blob2Cluster.L * 0.28) : l1 - 0.06;
+        double l2Raw = foundBlob2 ? 0.20 + (blob2Cluster.L * 0.28) + (preset.LightnessLift * 0.85) : l1 - 0.06;
         double l2 = Math.Clamp(l2Raw, preset.Blob2MinL, preset.Blob2MaxL);
-        double c2 = Math.Clamp(foundBlob2 ? blob2Cluster.Chroma : c1 * 0.85, preset.Blob2MinC, preset.Blob2MaxC);
+        double c2 = Math.Clamp((foundBlob2 ? blob2Cluster.Chroma * preset.ChromaGain : c1 * 0.85), preset.Blob2MinC, preset.Blob2MaxC);
 
-        double l3Raw = foundBlob3 ? 0.26 + (blob3Cluster.L * 0.30) : l1 + 0.05;
+        double l3Raw = foundBlob3 ? 0.26 + (blob3Cluster.L * 0.30) + preset.LightnessLift : l1 + 0.05;
         double l3 = Math.Clamp(l3Raw, preset.Blob3MinL, preset.Blob3MaxL);
-        double c3 = Math.Clamp(foundBlob3 ? blob3Cluster.Chroma : c1 * 0.92, preset.Blob3MinC, preset.Blob3MaxC);
+        double c3 = Math.Clamp((foundBlob3 ? blob3Cluster.Chroma * preset.ChromaGain : c1 * 0.92), preset.Blob3MinC, preset.Blob3MaxC);
 
         // Enforce lightness variety (Section 4.1: max(L_blobs) - L_base >= 0.14 and max(L_blobs) - min(L_blobs) >= 0.08)
         EnforceLightnessVariety(

@@ -197,6 +197,16 @@ public partial class ImmersiveBackdropControl : UserControl, SpringAnimator.IFra
             LayerA.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
             LayerB.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
             ScrimOverlay.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            if (value)
+            {
+                SpatialScrimTop.Visibility = Visibility.Collapsed;
+                SpatialScrimLyrics.Visibility = Visibility.Collapsed;
+                SpatialScrimBottom.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                ApplyScrimBrush();
+            }
             UpdateAnimationLifecycle();
         }
     }
@@ -251,6 +261,13 @@ public partial class ImmersiveBackdropControl : UserControl, SpringAnimator.IFra
         {
             UpdateAnimationLifecycle();
         }
+    }
+
+    internal void SetDriftTimeForTest(double seconds)
+    {
+        _driftTimeSeconds = seconds;
+        _lastAppliedDriftTime = double.NaN;
+        ApplyDriftTransforms(_driftTimeSeconds);
     }
 
     internal void ApplyPaletteImmediatelyForTest(BackdropPalette palette)
@@ -411,6 +428,15 @@ public partial class ImmersiveBackdropControl : UserControl, SpringAnimator.IFra
 
     private void ApplyScrimBrush()
     {
+        SpatialScrimTop.Visibility = Visibility.Collapsed;
+        SpatialScrimLyrics.Visibility = Visibility.Collapsed;
+        SpatialScrimBottom.Visibility = Visibility.Collapsed;
+
+        if (_suppressColorForNeutralityAudit)
+        {
+            return;
+        }
+
         bool isSafeDefault = _tuningPreset == ArtworkPaletteExtractor.SafeDefault;
         if (isSafeDefault)
         {
@@ -427,7 +453,82 @@ public partial class ImmersiveBackdropControl : UserControl, SpringAnimator.IFra
             }
         }
 
-        // Custom preset scrim (strictly pure black #000000 with preset alpha)
+        // Spatially varying pure-black scrim preset (lighter in open ambient artwork area,
+        // deeper strictly behind top chrome, lyrics reading column, and lower transport/metadata controls)
+        if (_tuningPreset.UseSpatialScrim)
+        {
+            if (ScrimMode == BackdropScrimMode.FullScreen)
+            {
+                var ambient = new SolidColorBrush(Color.FromArgb(ToAlphaByte(_tuningPreset.SpatialAmbientOpacity), 0, 0, 0));
+                ambient.Freeze();
+                ScrimOverlay.Fill = ambient;
+
+                byte aTop = ToAlphaByte(_tuningPreset.SpatialTopBarOpacity);
+                var topGrad = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+                topGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aTop, 0, 0, 0), 0.00));
+                topGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aTop, 0, 0, 0), 0.06));
+                topGrad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.18));
+                topGrad.Freeze();
+                SpatialScrimTop.Fill = topGrad;
+                SpatialScrimTop.Visibility = Visibility.Visible;
+
+                byte aLyrics = ToAlphaByte(_tuningPreset.SpatialLyricsColumnOpacity);
+                var lyricsGrad = new LinearGradientBrush { StartPoint = new Point(0, 0.5), EndPoint = new Point(1, 0.5) };
+                lyricsGrad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.00));
+                lyricsGrad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.30));
+                lyricsGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aLyrics, 0, 0, 0), 0.45));
+                lyricsGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aLyrics, 0, 0, 0), 1.00));
+                lyricsGrad.Freeze();
+                SpatialScrimLyrics.Fill = lyricsGrad;
+                SpatialScrimLyrics.Visibility = Visibility.Visible;
+
+                byte aBot = ToAlphaByte(_tuningPreset.SpatialBottomControlsOpacity);
+                var botGrad = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+                botGrad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.00));
+                botGrad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.42));
+                botGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aBot, 0, 0, 0), 0.62));
+                botGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aBot, 0, 0, 0), 1.00));
+                botGrad.Freeze();
+                SpatialScrimBottom.Fill = botGrad;
+                SpatialScrimBottom.Visibility = Visibility.Visible;
+                return;
+            }
+
+            if (ScrimMode == BackdropScrimMode.MiniCompact)
+            {
+                var ambient = new SolidColorBrush(Color.FromArgb(ToAlphaByte(_tuningPreset.SpatialMiniLeftGlowOpacity), 0, 0, 0));
+                ambient.Freeze();
+                ScrimOverlay.Fill = ambient;
+
+                byte aRight = ToAlphaByte(_tuningPreset.SpatialMiniRightControlsOpacity);
+                var rightGrad = new LinearGradientBrush { StartPoint = new Point(0, 0.5), EndPoint = new Point(1, 0.5) };
+                rightGrad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.00));
+                rightGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aRight, 0, 0, 0), 0.22));
+                rightGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aRight, 0, 0, 0), 1.00));
+                rightGrad.Freeze();
+                SpatialScrimLyrics.Fill = rightGrad;
+                SpatialScrimLyrics.Visibility = Visibility.Visible;
+
+                byte aBot = ToAlphaByte(_tuningPreset.SpatialBottomControlsOpacity);
+                var botGrad = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+                botGrad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.00));
+                botGrad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.22));
+                botGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aBot, 0, 0, 0), 0.45));
+                botGrad.GradientStops.Add(new GradientStop(Color.FromArgb(aBot, 0, 0, 0), 1.00));
+                botGrad.Freeze();
+                SpatialScrimBottom.Fill = botGrad;
+                SpatialScrimBottom.Visibility = Visibility.Visible;
+                return;
+            }
+
+            // MiniTray: subtle edge glow fading into reading scrim behind lyrics/queue list
+            var traySolid = new SolidColorBrush(Color.FromArgb(ToAlphaByte(_tuningPreset.MiniTrayScrimOpacity), 0, 0, 0));
+            traySolid.Freeze();
+            ScrimOverlay.Fill = traySolid;
+            return;
+        }
+
+        // Uniform custom preset scrim (strictly pure black #000000 with preset alpha)
         if (ScrimMode == BackdropScrimMode.FullScreen)
         {
             byte aTop = ToAlphaByte(_tuningPreset.FullScreenScrimTopOpacity);
