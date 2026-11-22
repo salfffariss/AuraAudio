@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,6 +35,7 @@ public sealed class LyricsLineItem : ViewModelBase
 
     public int Index { get; }
     public TimeSpan Timestamp { get; }
+    public TimeSpan Duration { get; }
     public string Text { get; }
     public bool IsInstrumentalGap { get; }
 
@@ -59,10 +61,11 @@ public sealed class LyricsLineItem : ViewModelBase
     public bool IsNext => _tier == LyricsLineTier.Future1;
     public bool IsPast => _tier == LyricsLineTier.Past;
 
-    public LyricsLineItem(int index, TimeSpan timestamp, string text, bool isInstrumentalGap)
+    public LyricsLineItem(int index, TimeSpan timestamp, string text, bool isInstrumentalGap, TimeSpan duration = default)
     {
         Index = index;
         Timestamp = timestamp;
+        Duration = duration > TimeSpan.Zero ? duration : TimeSpan.Zero;
         Text = text;
         IsInstrumentalGap = isInstrumentalGap;
     }
@@ -158,6 +161,22 @@ public class LyricsViewModel : ViewModelBase
         private set => SetProperty(ref _isSynced, value);
     }
 
+    public bool HasIntroGap =>
+        _isSynced &&
+        Lines.Count > 0 &&
+        !Lines[0].IsInstrumentalGap &&
+        Lines[0].Timestamp >= LyricsParser.InstrumentalGapThreshold;
+
+    public TimeSpan IntroGapDuration => HasIntroGap ? Lines[0].Timestamp : TimeSpan.Zero;
+
+    public TimeSpan PlaybackPositionAnchor { get; private set; }
+    public long PlaybackAnchorTicks { get; private set; }
+    public bool IsPlaybackActive { get; private set; }
+    public int LinesVersion { get; private set; }
+
+    public event Action? LinesReloaded;
+    public event Action? PlaybackClockUpdated;
+
     public ICommand SeekToLineCommand { get; }
 
     public LyricsViewModel(Action<double>? seekSecondsCallback = null)
@@ -169,7 +188,7 @@ public class LyricsViewModel : ViewModelBase
                 if (IsSynced && param is LyricsLineItem line && !line.IsInstrumentalGap)
                 {
                     _seekSecondsCallback?.Invoke(line.Timestamp.TotalSeconds);
-                    UpdatePlaybackPosition(line.Timestamp);
+                    UpdatePlaybackPosition(line.Timestamp, IsPlaybackActive);
                 }
             },
             param => IsSynced && (param is not LyricsLineItem line || !line.IsInstrumentalGap));
@@ -253,7 +272,11 @@ public class LyricsViewModel : ViewModelBase
             WritersText = FormatWriters(result?.Writers);
             IsSynced = false;
             ActiveLineIndex = -1;
+            PlaybackPositionAnchor = TimeSpan.Zero;
+            PlaybackAnchorTicks = 0;
             Lines.ReplaceAll(Array.Empty<LyricsLineItem>());
+            LinesVersion++;
+            LinesReloaded?.Invoke();
             return;
         }
 
@@ -265,7 +288,10 @@ public class LyricsViewModel : ViewModelBase
             for (int i = 0; i < result.Lines.Count; i++)
             {
                 var line = result.Lines[i];
-                var vmItem = new LyricsLineItem(i, line.Timestamp, line.Text, line.IsInstrumentalGap)
+                TimeSpan duration = i + 1 < result.Lines.Count
+                    ? result.Lines[i + 1].Timestamp - line.Timestamp
+                    : TimeSpan.Zero;
+                var vmItem = new LyricsLineItem(i, line.Timestamp, line.Text, line.IsInstrumentalGap, duration)
                 {
                     Tier = i == 0 ? LyricsLineTier.Future1 : LyricsLineTier.FutureN
                 };
@@ -276,6 +302,8 @@ public class LyricsViewModel : ViewModelBase
             PlainLyricsText = result.PlainText;
             IsSynced = true;
             ActiveLineIndex = -1;
+            PlaybackPositionAnchor = TimeSpan.Zero;
+            PlaybackAnchorTicks = Stopwatch.GetTimestamp();
             SourceLabel = result.Source switch
             {
                 LyricsSourceKind.SidecarLrc => "Synced · LRC",
@@ -284,6 +312,8 @@ public class LyricsViewModel : ViewModelBase
                 _ => "Synced"
             };
             State = LyricsViewState.TimeBasedLyricsLoaded;
+            LinesVersion++;
+            LinesReloaded?.Invoke();
         }
         else
         {
@@ -291,14 +321,26 @@ public class LyricsViewModel : ViewModelBase
             PlainLyricsText = result.PlainText;
             IsSynced = false;
             ActiveLineIndex = -1;
+            PlaybackPositionAnchor = TimeSpan.Zero;
+            PlaybackAnchorTicks = 0;
             SourceLabel = "Unsynced Lyrics";
             State = LyricsViewState.StaticLyricsLoaded;
+            LinesVersion++;
+            LinesReloaded?.Invoke();
         }
     }
 
-    public void UpdatePlaybackPosition(TimeSpan position)
+    public void UpdatePlaybackPosition(TimeSpan position, bool isPlaying = false)
     {
-        if (!IsSynced || Lines.Count == 0) return;
+        PlaybackPositionAnchor = position;
+        PlaybackAnchorTicks = Stopwatch.GetTimestamp();
+        IsPlaybackActive = isPlaying;
+
+        if (!IsSynced || Lines.Count == 0)
+        {
+            PlaybackClockUpdated?.Invoke();
+            return;
+        }
 
         // O(log n) binary search for latest line with Timestamp <= position (zero allocation)
         int low = 0;
@@ -323,6 +365,8 @@ public class LyricsViewModel : ViewModelBase
             ActiveLineIndex = found;
             UpdateLineTiers(found);
         }
+
+        PlaybackClockUpdated?.Invoke();
     }
 
     private void UpdateLineTiers(int activeIndex)
@@ -367,7 +411,12 @@ public class LyricsViewModel : ViewModelBase
         WritersText = string.Empty;
         IsSynced = false;
         ActiveLineIndex = -1;
+        PlaybackPositionAnchor = TimeSpan.Zero;
+        PlaybackAnchorTicks = 0;
+        IsPlaybackActive = false;
         Lines.ReplaceAll(Array.Empty<LyricsLineItem>());
+        LinesVersion++;
+        LinesReloaded?.Invoke();
     }
 
     private void SetLoadingState()
@@ -378,7 +427,11 @@ public class LyricsViewModel : ViewModelBase
         WritersText = string.Empty;
         IsSynced = false;
         ActiveLineIndex = -1;
+        PlaybackPositionAnchor = TimeSpan.Zero;
+        PlaybackAnchorTicks = 0;
         Lines.ReplaceAll(Array.Empty<LyricsLineItem>());
+        LinesVersion++;
+        LinesReloaded?.Invoke();
     }
 
     private void CancelPendingLoad()

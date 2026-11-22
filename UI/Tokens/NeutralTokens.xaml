@@ -41,6 +41,9 @@
     <Color x:Key="Color.Overlay.TranslucentChrome">#EB0B0B0B</Color>
     <Color x:Key="Color.Overlay.DockMaskTop">#00121212</Color>
     <Color x:Key="Color.Overlay.DockMaskMid">#E6121212</Color>
+    <Color x:Key="Color.Overlay.LyricsHoverPill">#14FFFFFF</Color>
+    <Color x:Key="Color.Overlay.LyricsMaskTransparent">#00FFFFFF</Color>
+    <Color x:Key="Color.Overlay.LyricsMaskOpaque">#FFFFFFFF</Color>
     <Color x:Key="Color.Spectrum.GridLine">#1F1F1F</Color>
     <Color x:Key="Color.Spectrum.FillTop">#52FFFFFF</Color>
     <Color x:Key="Color.Spectrum.FillBottom">#08FFFFFF</Color>
@@ -133,7 +136,22 @@
     <SolidColorBrush x:Key="Brush.Overlay.Scrim" Color="{StaticResource Color.Overlay.Scrim}" />
     <SolidColorBrush x:Key="Brush.Overlay.EdgeScrim" Color="{StaticResource Color.Overlay.EdgeScrim}" />
     <SolidColorBrush x:Key="Brush.Overlay.ZebraRow" Color="{StaticResource Color.Overlay.ZebraRow}" />
+    <SolidColorBrush x:Key="Brush.Overlay.LyricsHoverPill" Color="{StaticResource Color.Overlay.LyricsHoverPill}" />
     <SolidColorBrush x:Key="Brush.Spectrum.GridLine" Color="{StaticResource Color.Spectrum.GridLine}" />
+
+    <LinearGradientBrush x:Key="Brush.Overlay.LyricsEdgeMask" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0.00" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
+        <GradientStop Offset="0.10" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="0.86" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="1.00" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Brush.Overlay.LyricsEdgeMaskCompact" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0.00" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
+        <GradientStop Offset="0.08" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="0.88" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="1.00" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
+    </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="Brush.Overlay.ArtworkScrim" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0.0" Color="{StaticResource Color.Overlay.ArtworkScrimTop}" />
