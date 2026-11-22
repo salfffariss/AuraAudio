@@ -17,6 +17,7 @@ namespace AuraAudio.UI.Helpers;
 public static class CoverArtLoader
 {
     private static readonly ConcurrentDictionary<string, ImageSource> _memoryImageCache = new();
+    private static readonly ConcurrentDictionary<string, BitmapSource> _syntheticTestCovers = new();
     private static string CacheDir => AppDataPaths.EnsureThumbnailCacheDirectory();
 
     private static AuraAudio.Database.DatabaseManager? _database;
@@ -26,6 +27,40 @@ public static class CoverArtLoader
         _database = db;
     }
 
+    internal static void RegisterSyntheticCoverForTest(string coverCacheKey, BitmapSource bitmap)
+    {
+        if (string.IsNullOrWhiteSpace(coverCacheKey) || bitmap == null) return;
+        _syntheticTestCovers[coverCacheKey] = bitmap;
+    }
+
+    internal static void UnregisterSyntheticCoverForTest(string coverCacheKey)
+    {
+        if (string.IsNullOrWhiteSpace(coverCacheKey)) return;
+        _syntheticTestCovers.TryRemove(coverCacheKey, out _);
+    }
+
+    internal static BitmapSource? TryGetCachedMemoryImage(string coverCacheKey)
+    {
+        if (string.IsNullOrWhiteSpace(coverCacheKey)) return null;
+        if (_syntheticTestCovers.TryGetValue(coverCacheKey, out var synth)) return synth;
+        if (_memoryImageCache.TryGetValue($"{coverCacheKey}_{(int)ThumbnailSize.Mini}", out var mini) && mini is BitmapSource mb) return mb;
+        if (_memoryImageCache.TryGetValue($"{coverCacheKey}_{(int)ThumbnailSize.Grid}", out var grid) && grid is BitmapSource gb) return gb;
+        if (_memoryImageCache.TryGetValue($"{coverCacheKey}_{(int)ThumbnailSize.Large}", out var large) && large is BitmapSource lb) return lb;
+        return null;
+    }
+
+    internal static string? TryGetCachedThumbnailFilePath(string coverCacheKey)
+    {
+        if (string.IsNullOrWhiteSpace(coverCacheKey)) return null;
+        string miniPath = Path.Combine(CacheDir, $"{coverCacheKey}_{(int)ThumbnailSize.Mini}.jpg");
+        if (File.Exists(miniPath)) return miniPath;
+        string gridPath = Path.Combine(CacheDir, $"{coverCacheKey}_{(int)ThumbnailSize.Grid}.jpg");
+        if (File.Exists(gridPath)) return gridPath;
+        string largePath = Path.Combine(CacheDir, $"{coverCacheKey}_{(int)ThumbnailSize.Large}.jpg");
+        if (File.Exists(largePath)) return largePath;
+        return null;
+    }
+
     /// <summary>
     /// Mengambil ImageSource untuk ditampilkan di UI WPF.
     /// Menggunakan DecodePixelWidth agar konsumsi RAM sangat minim (~50KB per gambar 300x300).
@@ -33,6 +68,11 @@ public static class CoverArtLoader
     public static ImageSource? GetImage(string? coverCacheKey, ThumbnailSize size = ThumbnailSize.Grid)
     {
         if (string.IsNullOrWhiteSpace(coverCacheKey)) return null;
+
+        if (_syntheticTestCovers.TryGetValue(coverCacheKey, out var syntheticImg))
+        {
+            return syntheticImg;
+        }
 
         string cacheKey = $"{coverCacheKey}_{(int)size}";
 
