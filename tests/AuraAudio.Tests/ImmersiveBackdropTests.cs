@@ -357,6 +357,7 @@ public class ImmersiveBackdropTests
             finally
             {
                 host.Close();
+                GC.Collect();
             }
         });
     }
