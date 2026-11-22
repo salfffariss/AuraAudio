@@ -730,18 +730,33 @@ public static class ArtworkPaletteExtractor
         return (byte)Math.Clamp((int)Math.Round(srgb * 255.0), 0, 255);
     }
 
-    public static double ComputeRelativeLuminance(Color c) =>
-        (0.2126 * SrgbByteToLinear(c.R)) +
-        (0.7152 * SrgbByteToLinear(c.G)) +
-        (0.0722 * SrgbByteToLinear(c.B));
+    public static double ComputeRelativeLuminance(byte r, byte g, byte b) =>
+        (0.2126 * SrgbByteToLinear(r)) +
+        (0.7152 * SrgbByteToLinear(g)) +
+        (0.0722 * SrgbByteToLinear(b));
 
-    public static double ComputeContrastRatio(Color c1, Color c2)
+    public static double ComputeRelativeLuminance(Color c) =>
+        ComputeRelativeLuminance(c.R, c.G, c.B);
+
+    public static double ComputeContrastRatio(byte r1, byte g1, byte b1, byte r2, byte g2, byte b2)
     {
-        double y1 = ComputeRelativeLuminance(c1);
-        double y2 = ComputeRelativeLuminance(c2);
+        double y1 = ComputeRelativeLuminance(r1, g1, b1);
+        double y2 = ComputeRelativeLuminance(r2, g2, b2);
         double lighter = Math.Max(y1, y2);
         double darker = Math.Min(y1, y2);
         return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    public static double ComputeContrastRatio(Color c1, Color c2) =>
+        ComputeContrastRatio(c1.R, c1.G, c1.B, c2.R, c2.G, c2.B);
+
+    public static double ComputeAlphaOverContrastRatio(Color fg, double alpha, byte bgR, byte bgG, byte bgB)
+    {
+        double a = Math.Clamp(alpha, 0.0, 1.0);
+        byte r = (byte)Math.Clamp((int)Math.Round((fg.R * a) + (bgR * (1.0 - a))), 0, 255);
+        byte g = (byte)Math.Clamp((int)Math.Round((fg.G * a) + (bgG * (1.0 - a))), 0, 255);
+        byte b = (byte)Math.Clamp((int)Math.Round((fg.B * a) + (bgB * (1.0 - a))), 0, 255);
+        return ComputeContrastRatio(r, g, b, bgR, bgG, bgB);
     }
 
     public static void SrgbToOkLab(byte rByte, byte gByte, byte bByte, out double L, out double a, out double b)
