@@ -556,6 +556,16 @@ public class AudiophilePlaybackController : IPlaybackTrackSource, IDisposable
                 _currentTrack = track;
                 _currentIntegrityReport = null;
                 _currentDevice ??= _deviceEnumerator.GetDefaultRenderDevice();
+                if (_currentDevice == null && _outputEngine is not WasapiExclusivePlayer)
+                {
+                    _currentDevice = new AudioDevice(
+                        id: "null-audio-sink",
+                        name: "Null Audio Output (Silent)",
+                        driverType: _driverType,
+                        supportedSampleRates: [44_100u, 48_000u, 88_200u, 96_000u, 176_400u, 192_000u],
+                        maxBitDepth: BitDepth.Bit32Float,
+                        isDefault: true);
+                }
 
                 // 3. Inisialisasi engine output hardware (sinkronkan volume sebelum & sesudah init)
                 if (_currentDevice != null)
