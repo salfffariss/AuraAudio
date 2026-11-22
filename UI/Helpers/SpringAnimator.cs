@@ -26,14 +26,27 @@ public static class SpringAnimator
         public Action? OnComplete;
     }
 
+    internal interface IFrameTicker
+    {
+        /// <summary>
+        /// Advances one deduplicated compositor frame. Returns true while active, false to auto-unhook.
+        /// </summary>
+        bool StepFrame(double dtSeconds);
+    }
+
     private static readonly Dictionary<(UIElement Element, string Channel), SpringState> ActiveSprings = new();
     private static readonly HashSet<UIElement> UnloadSubscribed = new();
     private static readonly HashSet<UIElement> TransientCachedElements = new();
     private static readonly List<KeyValuePair<(UIElement Element, string Channel), SpringState>> SnapshotBuffer = new(64);
     private static readonly List<((UIElement Element, string Channel) Key, SpringState State)> CompletedBuffer = new(32);
     private static readonly List<(UIElement Element, string Channel)> UnloadRemoveBuffer = new(16);
+    private static readonly List<IFrameTicker> ActiveTickers = new(8);
+    private static readonly List<IFrameTicker> TickerSnapshotBuffer = new(8);
+    private static readonly List<IFrameTicker> CompletedTickersBuffer = new(8);
     private static readonly Stopwatch Clock = new();
     private static long _lastTimestampTicks;
+    private static TimeSpan _lastRenderingTime = TimeSpan.MinValue;
+    private static long _duplicateRenderingCallbacksSkipped;
     private static bool _isRenderingHooked;
     private static bool _useExternalClockForTest;
 
@@ -60,11 +73,47 @@ public static class SpringAnimator
         }
     }
 
-    internal static bool HasActiveSprings => ActiveSprings.Count > 0;
+    internal static bool HasActiveSprings => ActiveSprings.Count > 0 || ActiveTickers.Count > 0;
+    internal static bool IsRenderingHookedForTest => _isRenderingHooked;
+    internal static long DuplicateRenderingCallbacksSkippedForTest => _duplicateRenderingCallbacksSkipped;
+
+    internal static void RegisterFrameTicker(IFrameTicker ticker)
+    {
+        if (!ActiveTickers.Contains(ticker))
+        {
+            ActiveTickers.Add(ticker);
+            UpdateRenderingHookState();
+        }
+    }
+
+    internal static void UnregisterFrameTicker(IFrameTicker ticker)
+    {
+        if (ActiveTickers.Remove(ticker))
+        {
+            UpdateRenderingHookState();
+        }
+    }
+
+    internal static void ResetRenderingDedupForTest()
+    {
+        _lastRenderingTime = TimeSpan.MinValue;
+        _duplicateRenderingCallbacksSkipped = 0;
+    }
+
+    internal static bool TryConsumeRenderingTime(TimeSpan renderingTime)
+    {
+        if (renderingTime == _lastRenderingTime)
+        {
+            _duplicateRenderingCallbacksSkipped++;
+            return false;
+        }
+        _lastRenderingTime = renderingTime;
+        return true;
+    }
 
     internal static void StepExternalClockForTest(double dtSeconds)
     {
-        if (ActiveSprings.Count == 0 || dtSeconds <= 0.0) return;
+        if ((ActiveSprings.Count == 0 && ActiveTickers.Count == 0) || dtSeconds <= 0.0) return;
         StepSpringsCore(Math.Min(dtSeconds, 0.10));
     }
 
@@ -657,14 +706,15 @@ public static class SpringAnimator
             return;
         }
 
-        if (ActiveSprings.Count > 0 && !_isRenderingHooked)
+        bool hasWork = ActiveSprings.Count > 0 || ActiveTickers.Count > 0;
+        if (hasWork && !_isRenderingHooked)
         {
             if (!Clock.IsRunning) Clock.Start();
             _lastTimestampTicks = Clock.ElapsedTicks;
             CompositionTarget.Rendering += OnCompositionTargetRendering;
             _isRenderingHooked = true;
         }
-        else if (ActiveSprings.Count == 0 && _isRenderingHooked)
+        else if (!hasWork && _isRenderingHooked)
         {
             CompositionTarget.Rendering -= OnCompositionTargetRendering;
             _isRenderingHooked = false;
@@ -673,9 +723,15 @@ public static class SpringAnimator
 
     private static void OnCompositionTargetRendering(object? sender, EventArgs e)
     {
-        if (ActiveSprings.Count == 0)
+        if (ActiveSprings.Count == 0 && ActiveTickers.Count == 0)
         {
             UpdateRenderingHookState();
+            return;
+        }
+
+        // Deduplicate same-frame MediaContext callbacks caused by layout passes
+        if (e is RenderingEventArgs renderingArgs && !TryConsumeRenderingTime(renderingArgs.RenderingTime))
+        {
             return;
         }
 
@@ -689,60 +745,91 @@ public static class SpringAnimator
 
     private static void StepSpringsCore(double dt)
     {
-        const double maxSubStep = 1.0 / 180.0;
-        int steps = Math.Max(1, (int)Math.Ceiling(dt / maxSubStep));
-        double subDt = dt / steps;
-
-        CompletedBuffer.Clear();
-        SnapshotBuffer.Clear();
-        foreach (var kvp in ActiveSprings)
+        if (ActiveSprings.Count > 0)
         {
-            SnapshotBuffer.Add(kvp);
+            const double maxSubStep = 1.0 / 180.0;
+            int steps = Math.Max(1, (int)Math.Ceiling(dt / maxSubStep));
+            double subDt = dt / steps;
+
+            CompletedBuffer.Clear();
+            SnapshotBuffer.Clear();
+            foreach (var kvp in ActiveSprings)
+            {
+                SnapshotBuffer.Add(kvp);
+            }
+
+            for (int sIdx = 0; sIdx < SnapshotBuffer.Count; sIdx++)
+            {
+                var entry = SnapshotBuffer[sIdx];
+                var state = entry.Value;
+                double omega = 2.0 * Math.PI / Math.Max(0.08, state.Response);
+                double stiffness = omega * omega;
+                double damping = 2.0 * state.DampingRatio * omega;
+
+                for (int i = 0; i < steps; i++)
+                {
+                    double displacement = state.Current - state.Target;
+                    double accel = -stiffness * displacement - damping * state.Velocity;
+                    state.Velocity += accel * subDt;
+                    state.Current += state.Velocity * subDt;
+                }
+
+                if (Math.Abs(state.Current - state.Target) <= state.Tolerance &&
+                    Math.Abs(state.Velocity) <= state.Tolerance * 10.0)
+                {
+                    state.Current = state.Target;
+                    state.Velocity = 0.0;
+                    state.Apply(state.Target);
+                    CompletedBuffer.Add((entry.Key, state));
+                }
+                else
+                {
+                    state.Apply(state.Current);
+                }
+            }
+
+            for (int cIdx = 0; cIdx < CompletedBuffer.Count; cIdx++)
+            {
+                var item = CompletedBuffer[cIdx];
+                if (ActiveSprings.TryGetValue(item.Key, out var currentState) && ReferenceEquals(currentState, item.State))
+                {
+                    ActiveSprings.Remove(item.Key);
+                    ReleaseTransientCacheIfIdle(item.Key.Element);
+                    item.State.OnComplete?.Invoke();
+                }
+            }
+
+            SnapshotBuffer.Clear();
+            CompletedBuffer.Clear();
         }
 
-        for (int sIdx = 0; sIdx < SnapshotBuffer.Count; sIdx++)
+        if (ActiveTickers.Count > 0)
         {
-            var entry = SnapshotBuffer[sIdx];
-            var state = entry.Value;
-            double omega = 2.0 * Math.PI / Math.Max(0.08, state.Response);
-            double stiffness = omega * omega;
-            double damping = 2.0 * state.DampingRatio * omega;
-
-            for (int i = 0; i < steps; i++)
+            TickerSnapshotBuffer.Clear();
+            CompletedTickersBuffer.Clear();
+            for (int i = 0; i < ActiveTickers.Count; i++)
             {
-                double displacement = state.Current - state.Target;
-                double accel = -stiffness * displacement - damping * state.Velocity;
-                state.Velocity += accel * subDt;
-                state.Current += state.Velocity * subDt;
+                TickerSnapshotBuffer.Add(ActiveTickers[i]);
             }
 
-            if (Math.Abs(state.Current - state.Target) <= state.Tolerance &&
-                Math.Abs(state.Velocity) <= state.Tolerance * 10.0)
+            for (int i = 0; i < TickerSnapshotBuffer.Count; i++)
             {
-                state.Current = state.Target;
-                state.Velocity = 0.0;
-                state.Apply(state.Target);
-                CompletedBuffer.Add((entry.Key, state));
+                var ticker = TickerSnapshotBuffer[i];
+                if (!ticker.StepFrame(dt))
+                {
+                    CompletedTickersBuffer.Add(ticker);
+                }
             }
-            else
+
+            for (int i = 0; i < CompletedTickersBuffer.Count; i++)
             {
-                state.Apply(state.Current);
+                ActiveTickers.Remove(CompletedTickersBuffer[i]);
             }
+
+            TickerSnapshotBuffer.Clear();
+            CompletedTickersBuffer.Clear();
         }
 
-        for (int cIdx = 0; cIdx < CompletedBuffer.Count; cIdx++)
-        {
-            var item = CompletedBuffer[cIdx];
-            if (ActiveSprings.TryGetValue(item.Key, out var currentState) && ReferenceEquals(currentState, item.State))
-            {
-                ActiveSprings.Remove(item.Key);
-                ReleaseTransientCacheIfIdle(item.Key.Element);
-                item.State.OnComplete?.Invoke();
-            }
-        }
-
-        SnapshotBuffer.Clear();
-        CompletedBuffer.Clear();
         UpdateRenderingHookState();
     }
 }
