@@ -44,6 +44,11 @@
     <Color x:Key="Color.Overlay.LyricsHoverPill">#14FFFFFF</Color>
     <Color x:Key="Color.Overlay.LyricsMaskTransparent">#00FFFFFF</Color>
     <Color x:Key="Color.Overlay.LyricsMaskOpaque">#FFFFFFFF</Color>
+    <Color x:Key="Color.Overlay.BackdropScrimTop">#6B000000</Color>
+    <Color x:Key="Color.Overlay.BackdropScrimMid">#73000000</Color>
+    <Color x:Key="Color.Overlay.BackdropScrimBottom">#8A000000</Color>
+    <Color x:Key="Color.Overlay.MiniBackdropScrim">#7A000000</Color>
+    <Color x:Key="Color.Overlay.MiniTrayBackdropScrim">#8C000000</Color>
     <Color x:Key="Color.Spectrum.GridLine">#1F1F1F</Color>
     <Color x:Key="Color.Spectrum.FillTop">#52FFFFFF</Color>
     <Color x:Key="Color.Spectrum.FillBottom">#08FFFFFF</Color>
@@ -137,7 +142,15 @@
     <SolidColorBrush x:Key="Brush.Overlay.EdgeScrim" Color="{StaticResource Color.Overlay.EdgeScrim}" />
     <SolidColorBrush x:Key="Brush.Overlay.ZebraRow" Color="{StaticResource Color.Overlay.ZebraRow}" />
     <SolidColorBrush x:Key="Brush.Overlay.LyricsHoverPill" Color="{StaticResource Color.Overlay.LyricsHoverPill}" />
+    <SolidColorBrush x:Key="Brush.Overlay.MiniBackdropScrim" Color="{StaticResource Color.Overlay.MiniBackdropScrim}" />
+    <SolidColorBrush x:Key="Brush.Overlay.MiniTrayBackdropScrim" Color="{StaticResource Color.Overlay.MiniTrayBackdropScrim}" />
     <SolidColorBrush x:Key="Brush.Spectrum.GridLine" Color="{StaticResource Color.Spectrum.GridLine}" />
+
+    <LinearGradientBrush x:Key="Brush.Overlay.BackdropScrim" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0.00" Color="{StaticResource Color.Overlay.BackdropScrimTop}" />
+        <GradientStop Offset="0.50" Color="{StaticResource Color.Overlay.BackdropScrimMid}" />
+        <GradientStop Offset="1.00" Color="{StaticResource Color.Overlay.BackdropScrimBottom}" />
+    </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="Brush.Overlay.LyricsEdgeMask" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0.00" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
