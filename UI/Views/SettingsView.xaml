@@ -623,6 +623,27 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
+                            <TextBlock Text="Animated backdrop" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
+                            <TextBlock Text="Slowly drifts artwork-derived colors behind the Full-Screen player and Mini-Player. When off, a static gradient is shown."
+                                       Style="{StaticResource Text.Callout}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,3,0,0" />
+                        </StackPanel>
+                        <CheckBox Grid.Column="1"
+                                  Style="{StaticResource Style.ToggleSwitch}"
+                                  AutomationProperties.AutomationId="Aura.Settings.A11y.AnimatedBackdrop"
+                                  VerticalAlignment="Center"
+                                  IsChecked="{Binding Settings.AnimatedBackdropEnabled, Mode=TwoWay}" />
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource Style.SettingContainer}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center">
                             <TextBlock Text="Compact Navigation Rail (56px)" Style="{StaticResource Text.BodyEmph}" Foreground="{StaticResource Brush.Text.Peak}" />
                             <TextBlock Text="Collapse the left sidebar to icons only to maximize horizontal listening space."
                                        Style="{StaticResource Text.Callout}"
