@@ -105,6 +105,7 @@ public sealed class SyncedLyricsViewport : Grid, SpringAnimator.IFrameTicker
     }
 
     private readonly Canvas _canvas;
+    private readonly TranslateTransform _canvasTranslate;
     private readonly List<RowSlot> _pool = new(36);
     private readonly DispatcherTimer _manualScrollResumeTimer;
     private readonly TextBlock _measureTextBlock;
@@ -123,6 +124,7 @@ public sealed class SyncedLyricsViewport : Grid, SpringAnimator.IFrameTicker
     private int _measuredLinesVersion = -1;
 
     private double _scrollY;
+    private double _appliedCanvasScrollY = double.NaN;
     private double _targetScrollY;
     private double _scrollVelocity;
     private double _activeScrollResponse = ScrollResponseAuto;
@@ -148,11 +150,13 @@ public sealed class SyncedLyricsViewport : Grid, SpringAnimator.IFrameTicker
         Background = Brushes.Transparent;
         UseLayoutRounding = false;
 
+        _canvasTranslate = new TranslateTransform(0.0, 0.0);
         _canvas = new Canvas
         {
-            ClipToBounds = true,
+            ClipToBounds = false,
             Background = Brushes.Transparent,
-            UseLayoutRounding = false
+            UseLayoutRounding = false,
+            RenderTransform = _canvasTranslate
         };
         Children.Add(_canvas);
 
@@ -231,7 +235,7 @@ public sealed class SyncedLyricsViewport : Grid, SpringAnimator.IFrameTicker
         int slotIdx = _logicalToSlot[logicalIndex];
         if (slotIdx < 0) return (double.NaN, double.NaN, double.NaN);
         var slot = _pool[slotIdx];
-        return (slot.Container.Opacity, slot.Scale.ScaleX, slot.Translate.Y);
+        return (slot.Container.Opacity, slot.Scale.ScaleX, slot.Translate.Y + _canvasTranslate.Y);
     }
 
     /// <summary>
@@ -419,6 +423,10 @@ public sealed class SyncedLyricsViewport : Grid, SpringAnimator.IFrameTicker
     {
         if (e.PropertyName == nameof(LyricsViewModel.ActiveLineIndex))
         {
+            if (_lyrics == null || !_lyrics.IsSynced || _lyrics.Lines.Count == 0 || _measuredLinesVersion != _lyrics.LinesVersion)
+            {
+                return;
+            }
             UpdateActiveLogicalIndex(immediate: false, allowStagger: true);
         }
         else if (e.PropertyName == nameof(LyricsViewModel.State))
@@ -491,9 +499,10 @@ public sealed class SyncedLyricsViewport : Grid, SpringAnimator.IFrameTicker
         if (_hasIntroGap)
         {
             if (logicalIndex == 0) return true;
-            return _lyrics.Lines[logicalIndex - 1].IsInstrumentalGap;
+            int srcIdx = logicalIndex - 1;
+            return srcIdx >= 0 && srcIdx < _lyrics.Lines.Count && _lyrics.Lines[srcIdx].IsInstrumentalGap;
         }
-        return _lyrics.Lines[logicalIndex].IsInstrumentalGap;
+        return logicalIndex < _lyrics.Lines.Count && _lyrics.Lines[logicalIndex].IsInstrumentalGap;
     }
 
     private LyricsLineItem? GetSourceLine(int logicalIndex)
@@ -1157,28 +1166,66 @@ public sealed class SyncedLyricsViewport : Grid, SpringAnimator.IFrameTicker
         slot.AppliedScale = double.NaN;
     }
 
+    private double ComputeEdgeFade(double viewportY, double rowHeight)
+    {
+        if (_viewportHeight <= 1.0) return 1.0;
+
+        double topZone = _viewportHeight * (_isFullScreenMode ? 0.13 : 0.10);
+        double bottomZone = _viewportHeight * (_isFullScreenMode ? 0.16 : 0.14);
+
+        // Smoothly fade rows out before their glyphs hit the top or bottom viewport clip boundary
+        double topClearance = viewportY + (rowHeight * 0.35);
+        double bottomClearance = _viewportHeight - (viewportY + (rowHeight * 0.65));
+
+        double fade = 1.0;
+        if (topZone > 1.0 && topClearance < topZone)
+        {
+            double t = Math.Clamp(topClearance / topZone, 0.0, 1.0);
+            fade = Math.Min(fade, t * t * (3.0 - (2.0 * t)));
+        }
+        if (bottomZone > 1.0 && bottomClearance < bottomZone)
+        {
+            double t = Math.Clamp(bottomClearance / bottomZone, 0.0, 1.0);
+            fade = Math.Min(fade, t * t * (3.0 - (2.0 * t)));
+        }
+        return fade;
+    }
+
     private void ApplyAllSlotTransforms(bool updateTabStops)
     {
+        if (double.IsNaN(_appliedCanvasScrollY) || Math.Abs(_scrollY - _appliedCanvasScrollY) > 1e-4)
+        {
+            _canvasTranslate.Y = -_scrollY;
+            _appliedCanvasScrollY = _scrollY;
+        }
+
         for (int s = 0; s < _pool.Count; s++)
         {
             var slot = _pool[s];
             int li = slot.LogicalIndex;
             if (li < 0 || li >= _logicalCount) continue;
 
-            double y = _rowY[li] - _scrollY;
-            if (double.IsNaN(slot.AppliedY) || Math.Abs(y - slot.AppliedY) > 1e-4)
+            double docY = _rowY[li];
+            double rowH = _rowHeight[li];
+            double viewportY = docY - _scrollY;
+
+            if (double.IsNaN(slot.AppliedY) || Math.Abs(docY - slot.AppliedY) > 1e-4)
             {
-                slot.Translate.Y = y;
-                slot.AppliedY = y;
+                slot.Translate.Y = docY;
+                slot.AppliedY = docY;
             }
 
-            if (double.IsNaN(slot.AppliedOpacity) || Math.Abs(slot.CurrentOpacity - slot.AppliedOpacity) > 1e-4)
+            double edgeFade = li == _activeLogicalIndex ? 1.0 : ComputeEdgeFade(viewportY, rowH);
+            double effectiveOpacity = slot.CurrentOpacity * edgeFade;
+            if (double.IsNaN(slot.AppliedOpacity) || Math.Abs(effectiveOpacity - slot.AppliedOpacity) >= 0.0015 ||
+                (slot.CurrentOpacity == slot.TargetOpacity && Math.Abs(slot.AppliedOpacity - effectiveOpacity) > 1e-4))
             {
-                slot.Container.Opacity = slot.CurrentOpacity;
-                slot.AppliedOpacity = slot.CurrentOpacity;
+                slot.Container.Opacity = effectiveOpacity;
+                slot.AppliedOpacity = effectiveOpacity;
             }
 
-            if (double.IsNaN(slot.AppliedScale) || Math.Abs(slot.CurrentScale - slot.AppliedScale) > 1e-4)
+            if (double.IsNaN(slot.AppliedScale) || Math.Abs(slot.CurrentScale - slot.AppliedScale) >= 0.0005 ||
+                (slot.CurrentScale == slot.TargetScale && slot.AppliedScale != slot.CurrentScale))
             {
                 slot.Scale.ScaleX = slot.CurrentScale;
                 slot.Scale.ScaleY = slot.CurrentScale;
@@ -1187,7 +1234,7 @@ public sealed class SyncedLyricsViewport : Grid, SpringAnimator.IFrameTicker
 
             if (updateTabStops && !slot.IsGapBound)
             {
-                bool onScreen = (y + _rowHeight[li]) > 0.0 && y < _viewportHeight;
+                bool onScreen = (viewportY + rowH) > 0.0 && viewportY < _viewportHeight;
                 if (slot.AppliedOnScreen != onScreen)
                 {
                     slot.AppliedOnScreen = onScreen;

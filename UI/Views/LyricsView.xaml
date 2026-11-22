@@ -161,7 +161,6 @@
              ================================================================= -->
         <controls:SyncedLyricsViewport x:Name="SyncedViewport"
                                        Grid.Row="0"
-                                       OpacityMask="{Binding EdgeMaskBrush, ElementName=Root}"
                                        Visibility="{Binding Lyrics.IsTimeBasedLoaded, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
         <!-- =================================================================

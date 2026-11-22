@@ -141,15 +141,19 @@
 
     <LinearGradientBrush x:Key="Brush.Overlay.LyricsEdgeMask" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0.00" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
-        <GradientStop Offset="0.10" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
-        <GradientStop Offset="0.86" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="0.02" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
+        <GradientStop Offset="0.12" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="0.82" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="0.98" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
         <GradientStop Offset="1.00" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="Brush.Overlay.LyricsEdgeMaskCompact" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0.00" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
-        <GradientStop Offset="0.08" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
-        <GradientStop Offset="0.88" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="0.02" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
+        <GradientStop Offset="0.10" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="0.84" Color="{StaticResource Color.Overlay.LyricsMaskOpaque}" />
+        <GradientStop Offset="0.98" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
         <GradientStop Offset="1.00" Color="{StaticResource Color.Overlay.LyricsMaskTransparent}" />
     </LinearGradientBrush>
 
