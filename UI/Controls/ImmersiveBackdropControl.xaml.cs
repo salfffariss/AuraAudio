@@ -127,7 +127,7 @@ public partial class ImmersiveBackdropControl : UserControl, SpringAnimator.IFra
         set => SetValue(ScrimModeProperty, value);
     }
 
-    private BackdropTuningPreset _tuningPreset = ArtworkPaletteExtractor.SafeDefault;
+    private BackdropTuningPreset _tuningPreset = ArtworkPaletteExtractor.ActiveDefault;
     private BackdropPalette _activePalette = BackdropPalette.NeutralFallback;
     private bool _showingLayerA = true;
     private bool _hasAppliedInitialPalette;

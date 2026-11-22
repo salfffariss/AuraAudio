@@ -255,8 +255,8 @@ public class ImmersiveBackdropTests
             }
 
             Assert.Equal(ArtworkPaletteExtractor.LruCacheCapacity, ArtworkPaletteExtractor.CacheCount);
-            Assert.False(ArtworkPaletteExtractor.TryGetCached("synth_lru_test_0|SafeDefault", out _));
-            Assert.True(ArtworkPaletteExtractor.TryGetCached("synth_lru_test_65|SafeDefault", out _));
+            Assert.False(ArtworkPaletteExtractor.TryGetCached($"synth_lru_test_0|{ArtworkPaletteExtractor.ActiveDefault.Name}", out _));
+            Assert.True(ArtworkPaletteExtractor.TryGetCached($"synth_lru_test_65|{ArtworkPaletteExtractor.ActiveDefault.Name}", out _));
 
             // Synchronous cache hit check (already completed task)
             var hitTask = ArtworkPaletteExtractor.ExtractForCoverKeyAsync("synth_lru_test_65");
@@ -317,7 +317,8 @@ public class ImmersiveBackdropTests
                             Height = sc.H,
                             CompactMode = sc.Compact,
                             ScrimMode = sc.Mode,
-                            IsPlaying = false
+                            IsPlaying = false,
+                            TuningPreset = ArtworkPaletteExtractor.SafeDefault
                         };
                         host.Content = ctrl;
                         host.UpdateLayout();
@@ -397,6 +398,12 @@ public class ImmersiveBackdropTests
             {
                 host.Show();
                 host.UpdateLayout();
+
+                // 0. Verify active default preset is AppleMusicSpatial (with SafeDefault & BalancedVivid preserved)
+                Assert.Equal(ArtworkPaletteExtractor.AppleMusicSpatial, ctrl.TuningPreset);
+                Assert.Equal(ArtworkPaletteExtractor.AppleMusicSpatial, ArtworkPaletteExtractor.ActiveDefault);
+                Assert.Equal("SafeDefault", ArtworkPaletteExtractor.SafeDefault.Name);
+                Assert.Equal("BalancedVivid", ArtworkPaletteExtractor.BalancedVivid.Name);
 
                 // 1. All conditions met -> animating and drifting
                 Assert.True(ctrl.IsDriftAnimating);

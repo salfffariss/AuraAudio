@@ -293,6 +293,13 @@ public static class ArtworkPaletteExtractor
         SpatialMiniLeftGlowOpacity: SpatialMiniLeftGlowScrimOpacity,
         SpatialMiniRightControlsOpacity: SpatialMiniRightControlsScrimOpacity);
 
+    /// <summary>
+    /// Active default backdrop preset selected for v2.1.0.
+    /// SafeDefault and BalancedVivid remain exposed as named presets/constants.
+    /// </summary>
+    public const string ActiveDefaultPresetName = "AppleMusicSpatial";
+    public static BackdropTuningPreset ActiveDefault => AppleMusicSpatial;
+
     private readonly struct OkLabSample
     {
         public readonly double L;
@@ -406,7 +413,7 @@ public static class ArtworkPaletteExtractor
         BackdropTuningPreset? presetOverride = null,
         CancellationToken cancellationToken = default)
     {
-        BackdropTuningPreset preset = presetOverride ?? SafeDefault;
+        BackdropTuningPreset preset = presetOverride ?? ActiveDefault;
         if (string.IsNullOrWhiteSpace(coverCacheKey))
         {
             return Task.FromResult(BackdropPalette.NeutralFallback);
@@ -476,7 +483,7 @@ public static class ArtworkPaletteExtractor
 
     public static BackdropPalette ExtractFromBitmapSource(BitmapSource? source, BackdropTuningPreset? presetOverride = null)
     {
-        BackdropTuningPreset preset = presetOverride ?? SafeDefault;
+        BackdropTuningPreset preset = presetOverride ?? ActiveDefault;
         if (source == null) return BackdropPalette.NeutralFallback;
         byte[]? bgra = SampleBitmapToBgra32(source, out int w, out int h);
         if (bgra == null || w <= 0 || h <= 0) return BackdropPalette.NeutralFallback;
@@ -555,7 +562,7 @@ public static class ArtworkPaletteExtractor
         int height,
         BackdropTuningPreset? presetOverride = null)
     {
-        BackdropTuningPreset preset = presetOverride ?? SafeDefault;
+        BackdropTuningPreset preset = presetOverride ?? ActiveDefault;
         int pixelCount = Math.Min(width * height, bgraPixels.Length / 4);
         if (pixelCount <= 0)
         {

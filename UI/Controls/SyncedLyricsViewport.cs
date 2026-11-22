@@ -40,7 +40,7 @@ public sealed class SyncedLyricsViewport : Grid, SpringAnimator.IFrameTicker
     public const double OpacityNear = 0.46;
     public const double OpacityFar = 0.40;
     public const double OpacityHover = 0.82;
-    public const double OpacityDotUnfilled = 0.38;
+    public const double OpacityDotUnfilled = 0.42;
 
     public const double ScaleActive = 1.00;
     public const double ScaleAdjacent = 0.93;

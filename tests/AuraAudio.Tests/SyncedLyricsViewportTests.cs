@@ -256,13 +256,15 @@ public class SyncedLyricsViewportTests
                 Assert.True(vp.HasIntroGapRow);
                 Assert.Equal(5, vp.LogicalRowCount); // virtual intro gap + 4 parsed items
 
-                // 1. Intro gap at 2s (16.7% progress -> Dot 1 half-filled, Dot 2 & 3 unfilled at 0.38)
+                // 1. Intro gap at 2s (16.7% progress -> Dot 1 half-filled, Dot 2 & 3 unfilled at OpacityDotUnfilled)
+                double unfilled = SyncedLyricsViewport.OpacityDotUnfilled;
+                double halfFill = unfilled + ((1.0 - unfilled) * 0.5);
                 lyricsVm.UpdatePlaybackPosition(TimeSpan.FromSeconds(2.0), isPlaying: true);
                 Assert.Equal(0, vp.ActiveLogicalIndex);
                 var early = vp.LastActiveInterludeDotOpacitiesForTest;
-                Assert.True(early.D1 > 0.65 && early.D1 < 0.75, $"Expected Dot1 ~0.69 at 16.7%, got {early.D1:F3}");
-                Assert.InRange(early.D2, 0.37, 0.39);
-                Assert.InRange(early.D3, 0.37, 0.39);
+                Assert.InRange(early.D1, halfFill - 0.04, halfFill + 0.04);
+                Assert.InRange(early.D2, unfilled - 0.01, unfilled + 0.01);
+                Assert.InRange(early.D3, unfilled - 0.01, unfilled + 0.01);
 
                 // Advance smoothly on external clock by 4s -> now 6s (50% progress -> Dot 1 full, Dot 2 half, Dot 3 unfilled)
                 for (int f = 0; f < 400; f++)
@@ -271,8 +273,8 @@ public class SyncedLyricsViewportTests
                 }
                 var mid = vp.LastActiveInterludeDotOpacitiesForTest;
                 Assert.InRange(mid.D1, 0.99, 1.001);
-                Assert.True(mid.D2 > 0.65 && mid.D2 < 0.75, $"Expected Dot2 ~0.69 at 50%, got {mid.D2:F3}");
-                Assert.InRange(mid.D3, 0.37, 0.39);
+                Assert.InRange(mid.D2, halfFill - 0.04, halfFill + 0.04);
+                Assert.InRange(mid.D3, unfilled - 0.01, unfilled + 0.01);
 
                 // 2. Enter first vocal line at 12.2s -> intro interlude fades to 0.0
                 lyricsVm.UpdatePlaybackPosition(TimeSpan.FromSeconds(12.2), isPlaying: true);

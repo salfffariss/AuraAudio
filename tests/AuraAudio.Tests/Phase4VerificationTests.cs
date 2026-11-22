@@ -294,9 +294,10 @@ public class Phase4VerificationTests
     {
         WpfStaTestRunner.Run(() =>
         {
-            // Confirm SafeDefault remains the active default preset on newly created controls (Req 6e)
+            // Confirm AppleMusicSpatial is the active default preset (SafeDefault & BalancedVivid preserved as constants)
             var freshBackdrop = new ImmersiveBackdropControl();
-            Assert.Equal(ArtworkPaletteExtractor.SafeDefault, freshBackdrop.TuningPreset);
+            Assert.Equal(ArtworkPaletteExtractor.AppleMusicSpatial, freshBackdrop.TuningPreset);
+            Assert.Equal(ArtworkPaletteExtractor.ActiveDefault, freshBackdrop.TuningPreset);
 
             var results = RunPerZoneContrastMatrix(captureScreenshots: false, outDir: null);
             var failures = results.Where(r => !r.AllGatesPassed).ToList();
@@ -306,7 +307,23 @@ public class Phase4VerificationTests
                     $"{f.Surface}/{f.Cover}/{f.Preset}: OpenY={f.OpenAmbientY:F4} TextY={f.WorstTextZoneY:F4} -> {f.FailureDetails}"));
                 Assert.Fail($"Contrast gate failures ({failures.Count}/{results.Count}):{Environment.NewLine}{summary}");
             }
-            _output.WriteLine($"Verified {results.Count} surface/cover/preset combinations across {DriftPhasesSeconds.Length} drift phases: 100% PASS.");
+
+            // Enforce >= +0.30 margin over 3.0:1 (>= 3.30:1) on unfilled interlude dots across all 10 covers and both surfaces under AppleMusicSpatial
+            var spatialRows = results.Where(r => r.Preset == ArtworkPaletteExtractor.AppleMusicSpatial.Name).ToList();
+            Assert.Equal(All10CoverNames.Length * 2, spatialRows.Count);
+            foreach (var sr in spatialRows)
+            {
+                _output.WriteLine($"  [{sr.Surface,-10}] {sr.Cover,-11} | OpenY={sr.OpenAmbientY:F4} TextY={sr.WorstTextZoneY:F4} | Tert={sr.MinTertiaryCr:F2}({sr.MinTertiaryCr - 4.5:+0.00}) D1={sr.MinLyricD1Cr:F2}({sr.MinLyricD1Cr - 4.5:+0.00}) Dot={sr.MinDotCr:F2}({sr.MinDotCr - 3.0:+0.00})");
+                Assert.True(
+                    sr.MinDotCr >= 3.30,
+                    $"Unfilled dot margin < +0.30 on {sr.Surface}/{sr.Cover}/{sr.Preset}: Dot={sr.MinDotCr:F2}:1 (< 3.30:1)");
+            }
+
+            double minSpatialDot = spatialRows.Min(r => r.MinDotCr);
+            double minSpatialTert = spatialRows.Min(r => r.MinTertiaryCr);
+            _output.WriteLine(
+                $"Verified {results.Count} surface/cover/preset combinations across {DriftPhasesSeconds.Length} drift phases: 100% PASS. " +
+                $"AppleMusicSpatial worst Dot={minSpatialDot:F2}:1 ({minSpatialDot - 3.0:+0.00}), worst Tert={minSpatialTert:F2}:1 ({minSpatialTert - 4.5:+0.00}).");
         });
     }
 
@@ -348,7 +365,7 @@ public class Phase4VerificationTests
                     win.Show();
                     var redBmp = CreatePhase4Cover("red", 128)!;
                     CoverArtLoader.RegisterSyntheticCoverForTest("p4_fallback_red", redBmp);
-                    var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(redBmp, ArtworkPaletteExtractor.SafeDefault);
+                    var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(redBmp, ArtworkPaletteExtractor.ActiveDefault);
 
                     vm.CurrentTrack = MakeTrack(tempDir, "p4_fallback_red", "Fallback Test", hasCover: true);
                     vm.IsPlaying = true;
@@ -640,7 +657,7 @@ public class Phase4VerificationTests
                     using var vm = new MainViewModel(db: db);
                     var redBmp = CreatePhase4Cover("teal_orange", 128)!;
                     CoverArtLoader.RegisterSyntheticCoverForTest("p4_rt_cover", redBmp);
-                    var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(redBmp, ArtworkPaletteExtractor.SafeDefault);
+                    var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(redBmp, ArtworkPaletteExtractor.ActiveDefault);
 
                     vm.CurrentTrack = MakeTrack(tempDir, "p4_rt_cover", "Real-Time Presentation Probe", hasCover: true);
                     vm.IsPlaying = true;
@@ -931,7 +948,7 @@ public class Phase4VerificationTests
                 using var vm = new MainViewModel(db: db);
                 var coverBmp = CreatePhase4Cover("teal_orange", 128)!;
                 CoverArtLoader.RegisterSyntheticCoverForTest("p4_comb_cover", coverBmp);
-                var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(coverBmp, ArtworkPaletteExtractor.SafeDefault);
+                var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(coverBmp, ArtworkPaletteExtractor.ActiveDefault);
 
                 vm.CurrentTrack = MakeTrack(tempDir, "p4_comb_cover", "Combined Probe", hasCover: true);
                 vm.IsPlaying = true;
@@ -1144,7 +1161,7 @@ public class Phase4VerificationTests
                 using var vm = new MainViewModel(db: db);
                 var coverBmp = CreatePhase4Cover("warm_sunset", 128)!;
                 CoverArtLoader.RegisterSyntheticCoverForTest("p4_cost_cover", coverBmp);
-                var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(coverBmp, ArtworkPaletteExtractor.SafeDefault);
+                var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(coverBmp, ArtworkPaletteExtractor.ActiveDefault);
 
                 vm.CurrentTrack = MakeTrack(tempDir, "p4_cost_cover", "Cost Benchmark", hasCover: true);
                 vm.IsPlaying = true;
@@ -1483,7 +1500,7 @@ public class Phase4VerificationTests
                 using var vm = new MainViewModel(db: db);
                 var redBmp = CreatePhase4Cover("red", 128)!;
                 CoverArtLoader.RegisterSyntheticCoverForTest("p4_c2_red", redBmp);
-                var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(redBmp, ArtworkPaletteExtractor.SafeDefault);
+                var palette = ArtworkPaletteExtractor.ExtractFromBitmapSource(redBmp, ArtworkPaletteExtractor.ActiveDefault);
 
                 vm.CurrentTrack = MakeTrack(tempDir, "p4_c2_red", "C2 Neutrality Test", hasCover: true);
                 vm.IsPlaying = true;
