@@ -236,7 +236,7 @@ public sealed class LyricsMotionProbeTests
                     double idleCompositionMs = MotionProbe.MeasureIdleVsyncMs(win, 24);
                     int renderTier = RenderCapability.Tier >> 16;
 
-                    report.AppendLine("=== Phase 1 Baseline Lyrics Motion Probe ===");
+                    report.AppendLine("=== Phase 2 Restyled Lyrics Motion Probe (SyncedLyricsViewport) ===");
                     report.AppendLine($"DisplayMode={dispW}x{dispH} @ {refreshHz} Hz (vsync={vsyncMs:F2} ms), IdleCompositionTargetMs={idleCompositionMs:F2} ms ({1000.0 / idleCompositionMs:F1} Hz), RenderTier={renderTier}, ReducedMotion={SpringAnimator.IsReducedMotion}");
                     report.AppendLine($"SyncedLinesTotal={vm.Lyrics.Lines.Count} (including {vm.Lyrics.Lines.Count(l => l.IsInstrumentalGap)} instrumental gap markers)");
                     report.AppendLine();
@@ -247,13 +247,13 @@ public sealed class LyricsMotionProbeTests
                         win.UpdateLayout();
                         MotionProbe.PumpDispatcher(80);
 
-                        var listBox = (ListBox)lyricsView.FindName("SyncedLinesList");
-                        var scrollViewer = FindVisualChild<ScrollViewer>(listBox);
-                        Assert.NotNull(scrollViewer);
+                        var viewport = lyricsView.SyncedViewportControl;
+                        Assert.NotNull(viewport);
 
                         // Reset cleanly to line 5
-                        vm.Lyrics.UpdatePlaybackPosition(lyrics.Lines[5].Timestamp + TimeSpan.FromMilliseconds(50));
-                        MotionProbe.PumpDispatcher(180);
+                        vm.Lyrics.UpdatePlaybackPosition(lyrics.Lines[5].Timestamp + TimeSpan.FromMilliseconds(50), isPlaying: true);
+                        viewport.SyncToActiveLine(immediate: true);
+                        MotionProbe.PumpDispatcher(120);
                         win.UpdateLayout();
 
                         // 1. Visual tree audit
@@ -261,16 +261,17 @@ public sealed class LyricsMotionProbeTests
                         AuditVisualTree(lyricsView, ref nodes, ref effects, ref caches, ref realizedItems, ref textBlocks);
 
                         // 2. Real-time CompositionTarget.Rendering probe over 13 consecutive line transitions (every 260ms)
-                        var rtDts = new List<double>(600);
-                        var uniqueRenderingDts = new List<double>(600);
-                        var uniqueWallDts = new List<double>(600);
-                        var uniqueOffsets = new List<(double tMs, double offset)>(600);
-                        var rtOffsets = new List<(double tMs, double offset)>(600);
+                        var rtDts = new List<double>(4096);
+                        var uniqueRenderingDts = new List<double>(1024);
+                        var uniqueWallDts = new List<double>(1024);
+                        var uniqueOffsets = new List<(double tMs, double offset)>(1024);
+                        var rtOffsets = new List<(double tMs, double offset)>(4096);
                         int rtLayoutPasses = 0;
                         int duplicateRenderingTimeCount = 0;
                         void OnLayoutUpdated(object? s, EventArgs e) => rtLayoutPasses++;
                         lyricsView.LayoutUpdated += OnLayoutUpdated;
 
+                        SpringAnimator.ResetRenderingDedupForTest();
                         var frame = new DispatcherFrame();
                         long prevTicks = Stopwatch.GetTimestamp();
                         long prevUniqueWallTicks = prevTicks;
@@ -304,11 +305,11 @@ public sealed class LyricsMotionProbeTests
                                 }
                                 lastRenderingTime = rTime;
                                 prevUniqueWallTicks = nowTicks;
-                                uniqueOffsets.Add((tMs, scrollViewer!.VerticalOffset));
+                                uniqueOffsets.Add((tMs, viewport.CurrentScrollOffset));
                             }
 
                             rtDts.Add(dtMs);
-                            rtOffsets.Add((tMs, scrollViewer!.VerticalOffset));
+                            rtOffsets.Add((tMs, viewport.CurrentScrollOffset));
 
                             if (drive20HzSnapshotTicks && tMs >= nextPollMs)
                             {
@@ -319,7 +320,7 @@ public sealed class LyricsMotionProbeTests
 
                             if (nextLineStep <= maxLineStep && tMs >= nextSwitchMs)
                             {
-                                vm.Lyrics.UpdatePlaybackPosition(lyrics.Lines[nextLineStep].Timestamp + TimeSpan.FromMilliseconds(20));
+                                vm.Lyrics.UpdatePlaybackPosition(lyrics.Lines[nextLineStep].Timestamp + TimeSpan.FromMilliseconds(20), isPlaying: true);
                                 nextLineStep++;
                                 nextSwitchMs += 260.0;
                             }
@@ -377,7 +378,7 @@ public sealed class LyricsMotionProbeTests
                         // Save real-time CSV for inspection
                         string csvPath = Path.Combine(outDir, $"{hostLabel}_realtime.csv");
                         var csv = new StringBuilder(16384);
-                        csv.AppendLine("frame,t_ms,dt_ms,vertical_offset");
+                        csv.AppendLine("frame,t_ms,dt_ms,scroll_y");
                         for (int i = 0; i < rtOffsets.Count; i++)
                         {
                             double dt = i < rtDts.Count ? rtDts[i] : 0;
@@ -385,109 +386,87 @@ public sealed class LyricsMotionProbeTests
                         }
                         File.WriteAllText(csvPath, csv.ToString());
 
-                        // 3. Deterministic per-frame CPU + WPF Layout isolation benchmarks at display refresh rate (165 Hz) & 60 Hz
-                        // Measure A: Current ScrollToVerticalOffset + UpdateLayout per frame (60 frames moving 300 DIPs across lyrics)
-                        int detLayoutPassesScroll = 0;
-                        void OnScrollLayout(object? s, EventArgs e) => detLayoutPassesScroll++;
-                        lyricsView.LayoutUpdated += OnScrollLayout;
-
-                        double startOff = 200.0;
-                        scrollViewer!.ScrollToVerticalOffset(startOff);
-                        win.UpdateLayout();
-                        detLayoutPassesScroll = 0;
-
+                        // 3. Deterministic steady-state StepFrame benchmark at display refresh rate (120 frames)
                         const int scrollFrames = 120;
+                        double dtSec = 1.0 / refreshHz;
                         var scrollWorkMs = new List<double>(scrollFrames);
                         var scrollAllocBytes = new List<long>(scrollFrames);
-                        var observedScrollDelta = new List<double>(scrollFrames);
-                        double targetOff = startOff + 60.0; // Single typical lyric line height step (~60 DIPs)
-                        double curLogical = startOff;
-                        double dt165 = 1.0 / refreshHz;
-                        double alpha165 = 1.0 - Math.Exp(-12.0 * dt165);
+                        int detLayoutPassesScroll = 0;
+                        void OnScrollLayout(object? s, EventArgs e) => detLayoutPassesScroll++;
 
-                        for (int f = 0; f < scrollFrames; f++)
+                        bool prevExt = SpringAnimator.UseExternalClockForTest;
+                        SpringAnimator.UseExternalClockForTest = true;
+                        try
                         {
-                            // Advance target every 30 frames to simulate continuous auto-scroll
-                            if (f > 0 && f % 30 == 0) targetOff += 60.0;
-                            double prevActual = scrollViewer.VerticalOffset;
-                            double nextLogical = curLogical + (targetOff - curLogical) * alpha165;
-                            curLogical = nextLogical;
-
-                            long a0 = GC.GetAllocatedBytesForCurrentThread();
-                            long t0 = Stopwatch.GetTimestamp();
-                            scrollViewer.ScrollToVerticalOffset(nextLogical);
+                            // Start at line 5, trigger auto-scroll to line 9 (within already-bound pool window)
+                            vm.Lyrics.UpdatePlaybackPosition(lyrics.Lines[5].Timestamp + TimeSpan.FromMilliseconds(20), isPlaying: true);
+                            viewport.SyncToActiveLine(immediate: true);
                             win.UpdateLayout();
-                            double ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
-                            long aBytes = GC.GetAllocatedBytesForCurrentThread() - a0;
 
-                            scrollWorkMs.Add(ms);
-                            scrollAllocBytes.Add(aBytes);
-                            observedScrollDelta.Add(Math.Abs(scrollViewer.VerticalOffset - prevActual));
+                            vm.Lyrics.UpdatePlaybackPosition(lyrics.Lines[9].Timestamp + TimeSpan.FromMilliseconds(20), isPlaying: true);
+                            // Warm up 2 frames
+                            SpringAnimator.StepExternalClockForTest(dtSec);
+                            SpringAnimator.StepExternalClockForTest(dtSec);
+                            win.UpdateLayout();
+
+                            lyricsView.LayoutUpdated += OnScrollLayout;
+                            for (int f = 0; f < scrollFrames; f++)
+                            {
+                                long a0 = GC.GetAllocatedBytesForCurrentThread();
+                                long t0 = Stopwatch.GetTimestamp();
+                                SpringAnimator.StepExternalClockForTest(dtSec);
+                                win.UpdateLayout();
+                                double ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
+                                long aBytes = GC.GetAllocatedBytesForCurrentThread() - a0;
+
+                                scrollWorkMs.Add(ms);
+                                scrollAllocBytes.Add(aBytes);
+                            }
+                            lyricsView.LayoutUpdated -= OnScrollLayout;
+
+                            // Measure B: 20 line transitions (zero FontSize/FontWeight reflow)
+                            var transitionWorkMs = new List<double>(20);
+                            var transitionAllocBytes = new List<long>(20);
+                            int transitionLayoutPasses = 0;
+                            void OnTransLayout(object? s, EventArgs e) => transitionLayoutPasses++;
+                            lyricsView.LayoutUpdated += OnTransLayout;
+                            for (int idx = 20; idx < 40; idx++)
+                            {
+                                long a0 = GC.GetAllocatedBytesForCurrentThread();
+                                long t0 = Stopwatch.GetTimestamp();
+                                vm.Lyrics.UpdatePlaybackPosition(lyrics.Lines[idx].Timestamp + TimeSpan.FromMilliseconds(20), isPlaying: true);
+                                SpringAnimator.StepExternalClockForTest(dtSec);
+                                win.UpdateLayout();
+                                double ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
+                                long aBytes = GC.GetAllocatedBytesForCurrentThread() - a0;
+                                transitionWorkMs.Add(ms);
+                                transitionAllocBytes.Add(aBytes);
+                            }
+                            lyricsView.LayoutUpdated -= OnTransLayout;
+
+                            scrollWorkMs.Sort();
+                            transitionWorkMs.Sort();
+
+                            report.AppendLine($"--- HOST: {hostLabel} (Viewport={viewport.ActualWidth:F1}x{viewport.ActualHeight:F1}, ExtentH={viewport.TotalExtent:F1}) ---");
+                            report.AppendLine($"  VisualTree: Nodes={nodes}, TextBlocks={textBlocks}, PooledRows={viewport.RealizedRowCount}/{viewport.LogicalRowCount}, Effects={effects}, BitmapCache={caches}");
+                            report.AppendLine($"  RealTime CompositionTarget.Rendering (RawCallbacks={sortedRt.Count}, UniqueRenderingTimeFrames={sortedUniqueWall.Count}, DuplicateCallbacks={duplicateRenderingTimeCount} over {totalRunMs:F0} ms, 13 line transitions):");
+                            report.AppendLine($"    UniqueCompositorWallDt: p50={uP50:F2} ms ({effectiveUniqueFps:F1} fps), p95={uP95:F2} ms, p99={uP99:F2} ms, max={uMax:F2} ms");
+                            report.AppendLine($"    UniqueRenderingTimeDt : p50={Percentile(sortedUniqueRender, 0.50):F2} ms, p95={Percentile(sortedUniqueRender, 0.95):F2} ms, p99={Percentile(sortedUniqueRender, 0.99):F2} ms, max={(sortedUniqueRender.Count > 0 ? sortedUniqueRender[^1] : 0):F2} ms");
+                            report.AppendLine($"    RawCallbackDt         : p50={rtP50:F2} ms, p95={rtP95:F2} ms, p99={rtP99:F2} ms, max={rtMax:F2} ms");
+                            report.AppendLine($"    Dropped (Unique) @ {refreshHz}Hz: >1.5x({1.5 * vsyncMs:F2}ms)={uDrop15x}/{sortedUniqueWall.Count} ({100.0 * uDrop15x / Math.Max(1, sortedUniqueWall.Count):F1}%), >3.0x({3.0 * vsyncMs:F2}ms)={uDrop3x}/{sortedUniqueWall.Count} ({100.0 * uDrop3x / Math.Max(1, sortedUniqueWall.Count):F1}%)");
+                            report.AppendLine($"    Dropped (Unique) @ 60Hz: >25ms={uDrop15x60}/{sortedUniqueWall.Count}, >50ms={uDrop3x60}/{sortedUniqueWall.Count}");
+                            report.AppendLine($"    UniqueFramesWithScrollMove={uniqueMovedFrames}/{uniqueOffsets.Count} ({effectiveMovedFps:F1} fps), RawMovedCallbacks={offsetChangedFrames}/{rtOffsets.Count}, TinySubPxMoves(<1px)={tinyStepFrames}, LayoutUpdatedPasses={rtLayoutPasses}, TotalAlloc={allocDelta / 1024.0:F1} KB ({allocDelta / Math.Max(1, sortedUniqueWall.Count):N0} B/uniqueFrame)");
+                            report.AppendLine($"  Det SteadyState [SyncedLyricsViewport.StepFrame ({scrollFrames} frames @ {refreshHz}Hz)]:");
+                            report.AppendLine($"    WorkMs p50={Percentile(scrollWorkMs, 0.50):F4} ms, p95={Percentile(scrollWorkMs, 0.95):F4} ms, p99={Percentile(scrollWorkMs, 0.99):F4} ms, max={scrollWorkMs[^1]:F4} ms | LayoutPasses={detLayoutPassesScroll} | AvgAlloc={scrollAllocBytes.Average():F1} B/frame");
+                            report.AppendLine($"  Det LineTransitions [20 line switches (indices 20..39)]:");
+                            report.AppendLine($"    WorkMs p50={Percentile(transitionWorkMs, 0.50):F3} ms, p95={Percentile(transitionWorkMs, 0.95):F3} ms, max={transitionWorkMs[^1]:F3} ms | LayoutPasses={transitionLayoutPasses} ({(double)transitionLayoutPasses / 20.0:F2}/trans) | AvgAlloc={transitionAllocBytes.Average():F0} B/trans");
+                            report.AppendLine($"  CSV: {csvPath}");
+                            report.AppendLine();
                         }
-                        lyricsView.LayoutUpdated -= OnScrollLayout;
-
-                        // Measure B: Line transition (FontSize 20->24, LineHeight 28->32, FontWeight SemiBold->Bold via Tier DataTrigger)
-                        var transitionWorkMs = new List<double>(20);
-                        var transitionAllocBytes = new List<long>(20);
-                        int transitionLayoutPasses = 0;
-                        void OnTransLayout(object? s, EventArgs e) => transitionLayoutPasses++;
-                        lyricsView.LayoutUpdated += OnTransLayout;
-                        for (int idx = 20; idx < 40; idx++)
+                        finally
                         {
-                            long a0 = GC.GetAllocatedBytesForCurrentThread();
-                            long t0 = Stopwatch.GetTimestamp();
-                            vm.Lyrics.UpdatePlaybackPosition(lyrics.Lines[idx].Timestamp + TimeSpan.FromMilliseconds(20));
-                            win.UpdateLayout();
-                            double ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
-                            long aBytes = GC.GetAllocatedBytesForCurrentThread() - a0;
-                            transitionWorkMs.Add(ms);
-                            transitionAllocBytes.Add(aBytes);
+                            SpringAnimator.UseExternalClockForTest = prevExt;
                         }
-                        lyricsView.LayoutUpdated -= OnTransLayout;
-
-                        // Measure C: Counterfactual pure RenderTransform (TranslateTransform.Y) scroll with ZERO ScrollToVerticalOffset
-                        var (_, rtTr) = SpringAnimator.EnsureTransformGroup(listBox);
-                        int transformLayoutPasses = 0;
-                        void OnTrLayout(object? s, EventArgs e) => transformLayoutPasses++;
-                        lyricsView.LayoutUpdated += OnTrLayout;
-                        var trWorkMs = new List<double>(scrollFrames);
-                        var trAllocBytes = new List<long>(scrollFrames);
-                        for (int f = 0; f < scrollFrames; f++)
-                        {
-                            long a0 = GC.GetAllocatedBytesForCurrentThread();
-                            long t0 = Stopwatch.GetTimestamp();
-                            rtTr.Y = -f * 0.5;
-                            win.UpdateLayout();
-                            double ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
-                            long aBytes = GC.GetAllocatedBytesForCurrentThread() - a0;
-                            trWorkMs.Add(ms);
-                            trAllocBytes.Add(aBytes);
-                        }
-                        rtTr.Y = 0.0;
-                        lyricsView.LayoutUpdated -= OnTrLayout;
-
-                        scrollWorkMs.Sort();
-                        transitionWorkMs.Sort();
-                        trWorkMs.Sort();
-                        int zeroMoveFrames = observedScrollDelta.Count(d => d < 0.001);
-
-                        report.AppendLine($"--- HOST: {hostLabel} (Viewport={scrollViewer.ViewportWidth:F1}x{scrollViewer.ViewportHeight:F1}, ExtentH={scrollViewer.ExtentHeight:F1}) ---");
-                        report.AppendLine($"  VisualTree: Nodes={nodes}, TextBlocks={textBlocks}, RealizedListBoxItems={realizedItems}/{vm.Lyrics.Lines.Count}, Effects={effects}, BitmapCache={caches}");
-                        report.AppendLine($"  RealTime CompositionTarget.Rendering (RawCallbacks={sortedRt.Count}, UniqueRenderingTimeFrames={sortedUniqueWall.Count}, DuplicateCallbacks={duplicateRenderingTimeCount} over {totalRunMs:F0} ms, 13 line transitions):");
-                        report.AppendLine($"    UniqueCompositorWallDt: p50={uP50:F2} ms ({effectiveUniqueFps:F1} fps), p95={uP95:F2} ms, p99={uP99:F2} ms, max={uMax:F2} ms");
-                        report.AppendLine($"    UniqueRenderingTimeDt : p50={Percentile(sortedUniqueRender, 0.50):F2} ms, p95={Percentile(sortedUniqueRender, 0.95):F2} ms, p99={Percentile(sortedUniqueRender, 0.99):F2} ms, max={(sortedUniqueRender.Count > 0 ? sortedUniqueRender[^1] : 0):F2} ms");
-                        report.AppendLine($"    RawCallbackDt         : p50={rtP50:F2} ms, p95={rtP95:F2} ms, p99={rtP99:F2} ms, max={rtMax:F2} ms");
-                        report.AppendLine($"    Dropped (Unique) @ {refreshHz}Hz: >1.5x({1.5 * vsyncMs:F2}ms)={uDrop15x}/{sortedUniqueWall.Count} ({100.0 * uDrop15x / Math.Max(1, sortedUniqueWall.Count):F1}%), >3.0x({3.0 * vsyncMs:F2}ms)={uDrop3x}/{sortedUniqueWall.Count} ({100.0 * uDrop3x / Math.Max(1, sortedUniqueWall.Count):F1}%)");
-                        report.AppendLine($"    Dropped (Unique) @ 60Hz: >25ms={uDrop15x60}/{sortedUniqueWall.Count}, >50ms={uDrop3x60}/{sortedUniqueWall.Count}");
-                        report.AppendLine($"    UniqueFramesWithScrollMove={uniqueMovedFrames}/{uniqueOffsets.Count} ({effectiveMovedFps:F1} fps), RawMovedCallbacks={offsetChangedFrames}/{rtOffsets.Count}, TinySubPxMoves(<1px)={tinyStepFrames}, LayoutUpdatedPasses={rtLayoutPasses}, TotalAlloc={allocDelta / 1024.0:F1} KB ({allocDelta / Math.Max(1, sortedUniqueWall.Count):N0} B/uniqueFrame)");
-                        report.AppendLine($"  Det Isolation A [Current ScrollToVerticalOffset + UpdateLayout ({scrollFrames} frames @ {refreshHz}Hz)]:");
-                        report.AppendLine($"    WorkMs p50={Percentile(scrollWorkMs, 0.50):F2} ms, p95={Percentile(scrollWorkMs, 0.95):F2} ms, p99={Percentile(scrollWorkMs, 0.99):F2} ms, max={scrollWorkMs[^1]:F2} ms | LayoutPasses={detLayoutPassesScroll} ({(double)detLayoutPassesScroll / scrollFrames:F2}/frame) | AvgAlloc={scrollAllocBytes.Average():F0} B/frame | ZeroMoveQuantizedFrames={zeroMoveFrames}/{scrollFrames}");
-                        report.AppendLine($"  Det Isolation B [Line Transition FontSize/LineHeight/Bold Reflow (20 transitions)]:");
-                        report.AppendLine($"    WorkMs p50={Percentile(transitionWorkMs, 0.50):F2} ms, p95={Percentile(transitionWorkMs, 0.95):F2} ms, max={transitionWorkMs[^1]:F2} ms | LayoutPasses={transitionLayoutPasses} ({(double)transitionLayoutPasses / 20.0:F2}/trans) | AvgAlloc={transitionAllocBytes.Average():F0} B/trans");
-                        report.AppendLine($"  Det Isolation C [Counterfactual Pure TranslateTransform.Y ({scrollFrames} frames, ZERO ScrollToVerticalOffset)]:");
-                        report.AppendLine($"    WorkMs p50={Percentile(trWorkMs, 0.50):F3} ms, p95={Percentile(trWorkMs, 0.95):F3} ms, max={trWorkMs[^1]:F3} ms | LayoutPasses={transformLayoutPasses} | AvgAlloc={trAllocBytes.Average():F0} B/frame");
-                        report.AppendLine($"  CSV: {csvPath}");
-                        report.AppendLine();
                     }
 
                     // SCENARIO 1: Full-Screen Split Lyrics View
@@ -520,7 +499,8 @@ public sealed class LyricsMotionProbeTests
                 }
             });
 
-            string summaryPath = Path.Combine(outDir, "phase1_lyrics_baseline.txt");
+            string summaryFile = Environment.GetEnvironmentVariable("AURA_LYRICS_PROBE_FILE") ?? "phase2_lyrics_probe.txt";
+            string summaryPath = Path.Combine(outDir, summaryFile);
             File.WriteAllText(summaryPath, report.ToString());
             _output.WriteLine(report.ToString());
         }

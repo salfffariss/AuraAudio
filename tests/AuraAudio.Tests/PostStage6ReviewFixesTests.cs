@@ -689,16 +689,10 @@ public class PostStage6ReviewFixesTests
                 host.Show();
                 host.UpdateLayout();
 
-                var list = Assert.IsType<ListBox>(lyricsView.FindName("SyncedLinesList"));
-                Assert.True(VirtualizingPanel.GetIsVirtualizing(list));
-                Assert.Equal(ScrollUnit.Pixel, VirtualizingPanel.GetScrollUnit(list));
-
-                int realizedCount = 0;
-                for (int i = 0; i < 150; i++)
-                {
-                    if (list.ItemContainerGenerator.ContainerFromIndex(i) != null) realizedCount++;
-                }
-                Assert.True(realizedCount > 0 && realizedCount < 60, $"Expected virtualized subset of 150 lyric lines (<60), got {realizedCount}.");
+                var viewport = Assert.IsType<AuraAudio.UI.Controls.SyncedLyricsViewport>(lyricsView.FindName("SyncedViewport"));
+                int realizedCount = viewport.RealizedRowCount;
+                Assert.True(realizedCount > 0 && realizedCount < 45, $"Expected pooled virtualized subset of 150 lyric lines (<45), got {realizedCount}.");
+                Assert.Equal(150, viewport.LogicalRowCount);
             }
             finally
             {
