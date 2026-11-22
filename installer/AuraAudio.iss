@@ -4,7 +4,7 @@
 ; Build via:
 ;   powershell -ExecutionPolicy Bypass -File tools\release\build_release.ps1
 ; Or directly with Inno Setup Compiler (ISCC.exe):
-;   ISCC.exe /DMyAppVersion=2.0.3 /DPublishDir=..\artifacts\publish\staging /DOutputDir=..\artifacts\releases installer\AuraAudio.iss
+;   ISCC.exe /DMyAppVersion=2.1.0 /DPublishDir=..\artifacts\publish\staging /DOutputDir=..\artifacts\releases installer\AuraAudio.iss
 ;
 ; Installs per-user by default (%LocalAppData%\Programs\AuraAudio, no UAC)
 ; with optional elevation dialog for all-users (C:\Program Files\AuraAudio).
@@ -13,7 +13,7 @@
 ; =============================================================================
 
 #ifndef MyAppVersion
-  #define MyAppVersion "2.0.3"
+  #define MyAppVersion "2.1.0"
 #endif
 
 #ifndef PublishDir

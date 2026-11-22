@@ -187,7 +187,7 @@ public class SettingsViewModel : ViewModelBase
             }
             string ver = !string.IsNullOrWhiteSpace(infoVer)
                 ? infoVer
-                : (asm.GetName().Version?.ToString(3) ?? "2.0.3");
+                : (asm.GetName().Version?.ToString(3) ?? "2.1.0");
             return $"AuraAudio v{ver} (.NET 9 / WPF Pure Monochrome)";
         }
     }

@@ -5,7 +5,7 @@
         xmlns:controls="clr-namespace:AuraAudio.UI.Controls"
         xmlns:helpers="clr-namespace:AuraAudio.UI.Helpers"
         xmlns:views="clr-namespace:AuraAudio.UI.Views"
-        Title="AuraAudio v2.0.3 Mini-Player"
+        Title="AuraAudio v2.1.0 Mini-Player"
         Width="350"
         Height="160"
         WindowStyle="None"
